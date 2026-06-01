@@ -1,0 +1,4 @@
+# Files Claude should not read or act on.
+
+# Local prompt log; private working notes.
+PROMPTS.md
