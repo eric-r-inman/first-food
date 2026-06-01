@@ -1,0 +1,66 @@
+#+title:     Template Setup — Assumptions and Decisions
+#+language:  en
+
+This records the assumptions made while applying =~/dev/rust-template= to set up
+the =first-food= workspace.  The goal was a clean, faithful template setup — the
+project's eventual purpose is undecided, so nothing application-specific was
+invented.  Anything not dictated by the template is listed here for review.
+
+* Generation
+
+- *Project name:* =first-food= (the existing directory name).  Package names
+  follow the template scheme =first-food-<crate>=; the configured application
+  name (clap command name, env-var prefix) is =first-food=.
+- *Crates:* =cli=, =server=, =lib= — the template default (=lib= is always
+  included).  Chosen per request to keep the most options open before the
+  project's purpose is decided.
+- *=--public= was NOT passed.* The =lib= crate keeps =publish = false= and no
+  =publish.yml= workflow is emitted.  CI, branch protection, dependabot, and
+  automerge are present (the template emits these regardless).
+- *No =--description= was passed.* =flake.nix= and =README.org= keep the
+  template's placeholder text, to be filled in once the project's purpose is
+  known.
+
+* Workspace metadata (root =Cargo.toml=)
+
+- *authors* = ="Eric Rinman <ericrinman@gmail.com>"= (from the account email).
+- *repository* = ="https://github.com/ericrinman/first-food"= — *guessed* from
+  the name and email.  Update if the GitHub owner/repo differs.
+- *license* = ="AGPL-3.0-or-later"= — *kept the template default unchanged.* Set
+  the license you actually want; the =LICENSE= file matches the default.
+
+* Fixes applied to make the workspace build and test green
+
+The template's own verification is =cargo build --workspace= and =cargo test
+--workspace=.  Three small fixes were needed for the *server* crate and one
+template test to pass against the pinned =foundation= v0.6.0; each is a latent
+template/foundation drift issue, not a project decision:
+
+- =crates/server/Cargo.toml= — added =thiserror= as a direct dependency.  The
+  =MergeConfig=-generated =ConfigError= derives =thiserror::Error=, whose
+  expansion references =thiserror= as a direct crate (the =cli= crate already
+  declares it; the =server= crate did not).
+- =crates/server/src/config.rs= — added =use rust_template_foundation::CliApp;=.
+  The hand-written =ServerApp= impl calls =Self::app_name()=, a =CliApp= trait
+  method, which requires the trait in scope.
+- =crates/cli/tests/integration_test.rs= — the =--version= assertion checked for
+  the crate name (=first-food-cli=), but =#[foundation_main]= sets clap's
+  command name to the app name, so =--version= prints =first-food <version>=.
+  Changed the assertion to =first-food=.  (This only surfaces under a full
+  =cargo test --workspace=; the Nix package build runs =--lib --bins= and skips
+  =tests/=.)
+
+The template's placeholder warnings (=AppError::Execution= unused in the CLI,
+the unused =config= parameter in the server's placeholder =main=) were left
+as-is — they are the template's "fill these in" stubs.
+
+* Environment note
+
+This machine's cargo could not resolve =crates.io= hostnames during setup (its
+bundled downloader cannot use the only configured DNS nameserver, a link-local
+IPv6 address, though system =curl= / =nslookup= resolve fine; there is no
+passwordless =sudo= to repair it).  The =foundation= git dependency was fetched
+with =CARGO_NET_GIT_FETCH_WITH_CLI=true= (system git resolves github.com), and
+all other dependencies were already in the shared =~/.cargo= cache, so the
+workspace builds and tests offline.  This was a one-off command-line environment
+variable; nothing environment-specific was committed to the repository.

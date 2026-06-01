@@ -1,0 +1,22 @@
+#+title:     first-food — Development Progress
+#+language:  en
+
+Running log of development progress.  Update after completing a unit of work.
+
+* Done
+
+** Project set up from rust-template
+
+Applied =~/dev/rust-template= with the default crate set (=cli=, =server=,
+=lib=).  The workspace builds and tests green under =nix develop= and =treefmt
+--fail-on-change= is clean.  See =ASSUMPTIONS.org= for the decisions and the few
+template fixes that were needed.
+
+* Next
+
+- Decide the project's purpose and replace the placeholder =README.org=,
+  =flake.nix= description, and the placeholder =run()= / route handlers in the
+  =cli= and =server= crates.
+- Confirm the license and the GitHub repository URL in the root =Cargo.toml=.
+- Remove any crates not needed once the purpose is known (e.g. drop =server= for
+  a pure CLI, or =cli= for a pure service).

@@ -1,0 +1,45 @@
+[package]
+name = "first-food-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "first_food_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "first-food-server"
+path = "src/main.rs"
+
+[dependencies]
+rust-template-foundation = { workspace = true, features = ["auth"] }
+first-food-lib = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# The MergeConfig-generated ConfigError derives thiserror::Error, whose
+# expansion references thiserror as a direct crate.
+thiserror = { workspace = true }
+tap = { workspace = true }  # For method chaining, reduces superfluous locals
+axum = { workspace = true }
+tokio = { workspace = true }
+tokio-listener = { workspace = true }
+prometheus = { workspace = true }
+aide = { workspace = true }
+schemars = { workspace = true }
+openidconnect = { workspace = true }
+
+[dev-dependencies]
+openidconnect = { workspace = true }
+prometheus = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tower = { workspace = true }
+
+[lints]
+workspace = true
