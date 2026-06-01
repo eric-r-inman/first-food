@@ -54,7 +54,7 @@ prometheus = "0.13"
 
 # OpenAPI (re-exported by foundation, but needed for ApiRouter in app code)
 aide = { version = "0.15", features = ["axum", "axum-json", "axum-query", "scalar", "macros"] }
-schemars = "0.9"
+schemars = "1.2"
 
 # Authentication (re-exported by foundation, needed for CoreClient type in app)
 openidconnect = { version = "3", features = ["reqwest"] }
