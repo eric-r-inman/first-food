@@ -57,7 +57,7 @@ aide = { version = "0.15", features = ["axum", "axum-json", "axum-query", "scala
 schemars = "0.9"
 
 # Authentication (re-exported by foundation, needed for CoreClient type in app)
-openidconnect = { version = "3", features = ["reqwest"] }
+openidconnect = { version = "4", features = ["reqwest"] }
 tower-sessions = { version = "0.15", features = ["memory-store"] }
 
 # Shared library
