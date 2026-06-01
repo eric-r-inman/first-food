@@ -11,7 +11,10 @@ members = [
 version = "0.1.0"
 edition = "2021"
 authors = ["Eric Rinman <ericrinman@gmail.com>"]
-license = "AGPL-3.0-or-later"
+# Proprietary, all rights reserved.  Not an open-source license; see LICENSE.
+# The crates are not published (publish = false), so a real SPDX license is
+# not required.
+license = "LicenseRef-Proprietary"
 repository = "https://github.com/eric-r-inman/first-food"
 
 [workspace.dependencies]
