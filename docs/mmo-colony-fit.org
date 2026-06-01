@@ -1,0 +1,217 @@
+#+title:     Fit Analysis — Server-Authoritative Colony MMO
+#+language:  en
+
+*The project under consideration:* a simple MMO where the game world advances on
+the server, players log in to manage a Dwarf Fortress / RimWorld-style colony
+inside a shared, server-managed world, with minimal or ASCII-only graphics.
+
+This analyzes how the =rust-template= architecture fits that idea and what would
+have to be added or changed.  It revises the earlier
+=architecture-rationale.org= conclusion that "games are a poor fit" — that
+judgment was about *local, real-time-rendered* games.  A server-authoritative
+colony sim is a different animal, and a much better one for this template.
+
+* Verdict
+
+*This is one of the best game shapes for this template.* The earlier caveat
+applied to local Bevy-style games whose defining work is a GPU render loop on
+the player's machine.  Here, the defining work is a *long-lived, stateful,
+authoritative simulation running as a server* — which is precisely what this
+template is built to host and operate.  The minimal/ASCII presentation removes
+the exact thing the template is bad at (rich real-time client rendering) and
+leans on the exact thing it is good at (running a robust networked daemon).
+
+You will be building *with* the grain of the template for roughly 80% of the
+non-game "plumbing," and the work that remains is the genuinely game-specific
+part: the simulation, the wire protocol, persistence, and the client.
+
+* What the template gives you for (nearly) free
+
+Mapping the template's components onto this game's needs:
+
+- *The =server= crate as the world host.* The template explicitly frames its
+  server as a *general long-running process that responds to stimuli* — "not
+  specifically an HTTP server."  A tick-driven world simulation is exactly that
+  kind of process, so hosting it here is with the grain, not a hack.
+- *Graceful shutdown (SIGTERM/SIGINT drain).* Critical for a persistent world:
+  it is the natural hook to checkpoint/save world state and disconnect players
+  cleanly instead of corrupting a save mid-tick on every deploy or restart.
+- *Health checks and Prometheus metrics.* An MMO lives or dies by observability.
+  =/healthz= and =/metrics= from day zero let you watch tick duration, entities,
+  colonists, players online, save latency, and memory — the numbers you need to
+  keep a 24/7 world healthy — without retrofitting instrumentation later.
+- *OIDC login + JWT bearer auth.* "Players log in" is a solved problem if you
+  delegate identity to an OIDC provider, and the JWT path gives you tokens for
+  bots, admin tools, and your own CLI.
+- *systemd / launchd modules with socket activation and a watchdog.* Run the
+  world as a managed, auto-restarting daemon; the watchdog will catch a hung
+  tick loop and restart it.
+- *Staged configuration + structured logging + semantic errors.* Tick rate,
+  world seed, save path, ports, and limits flow through the layered config;
+  =tracing= gives you structured per-tick/per-player fields; =thiserror= keeps
+  failures legible in logs — all of which matter far more for a process that
+  must stay up for weeks than for a one-shot tool.
+- *The =lib= crate as the simulation engine.* This is the big one.  A pure,
+  rendering-free library is the ideal home for the world model, colonists, jobs,
+  pathfinding, economy, and tick advancement.  Because it is pure and headless,
+  you can unit- and integration-test the entire simulation with no server and no
+  client — exactly what a complex, emergent colony sim needs to stay correct.
+- *The =cli= crate as ops + headless sim runner.* Spin up or inspect a world,
+  run migrations, fast-forward N ticks for balancing, replay a scenario, or load
+  test — all without the network in the way.  Also the natural surface for
+  scripted/AI-driven interaction.
+- *Nix, CI, formatting, dependabot, changelog, semver.* Reproducible server
+  builds and deploys, and — if you split reusable simulation pieces into crates
+  — automated publishing.
+
+* The architecture I would recommend
+
+The template's crate split maps cleanly onto this game:
+
+- =lib= — the *authoritative simulation*: world state, rules, tick function, all
+  pure and deterministic.  No I/O, no network, no rendering.  Fully tested.
+- =server= — the *world host*: owns a running instance of the simulation,
+  advances it on a schedule, authenticates players, accepts their intents,
+  validates them against the rules, and streams world state back out.  Persists
+  and restores the world.
+- =cli= — *operations and offline tooling*: headless world runner, inspectors,
+  migrations, balancing harnesses, load generators.
+- *client* (a new, separate concern) — the ASCII/minimal UI players actually use
+  (see below).
+
+* What you must add — the real gaps and compromises
+
+The template stops at "robust networked service."  Everything below is
+game-specific and is *not* provided; this is where your design work lives.
+
+** 1. A real-time push transport (the biggest addition)
+
+The template's server scaffolding is HTTP request/response (=axum= + OpenAPI),
+which is perfect for login and discrete management actions ("queue this build
+order").  But a world that *progresses* must *push* state to clients — deltas
+and events every tick — and request/response does not do server-push.
+
+You will add a *WebSocket* layer (axum supports WS upgrades natively), or SSE,
+or a custom TCP/binary protocol.  WebSockets are the pragmatic default.  The
+template's own docs even list "WebSockets" and "a binary protocol" as expected
+server roles — so this is anticipated, just not pre-wired.  ASCII/minimal
+presentation is a real advantage here: world deltas are tiny, so bandwidth and
+serialization are non-issues.
+
+** 2. The simulation tick loop
+
+The template has no concept of a fixed-timestep loop that advances the world
+independently of incoming requests.  =#[foundation_main]= is request-driven (set
+up, listen).  You add a *background task that owns the world and ticks it* (a
+tokio interval or a dedicated thread), with request/WS handlers feeding commands
+into it and reading snapshots out of it.  This is the core architectural piece
+the template does not give you — it gives you the host process and the shutdown
+hooks to integrate it, but not the loop.
+
+** 3. Shared mutable world state and a concurrency model
+
+Many players act on one shared world.  The clean, RimWorld/DF-shaped approach is
+the *actor model*: a single task owns the world and is the only thing that
+mutates it; handlers send it commands over a channel and receive
+snapshots/events back.  This keeps the simulation effectively single-threaded
+and deterministic (which you want), and sidesteps lock contention.  The
+template's =with_state= / =BaseServerState= gives you a place to hang the
+channel sender and a snapshot reader as shared state; you design the ownership.
+
+** 4. Persistence and world snapshots
+
+A persistent world must survive restarts, and the template has *no* persistence
+layer — it is stateless-service-shaped.  You add it.  Options, roughly in order
+of elegance for this genre:
+
+- *Deterministic sim + event sourcing.* Store the world seed plus an append-only
+  log of player commands; replay to reconstruct state.  This pairs beautifully
+  with the pure/deterministic =lib= design, gives you reproducible debugging,
+  trivial tests, and even rewind — and is cheap to persist.
+- *Periodic snapshots* of serialized world state (=serde= is already in the
+  stack) to disk, with the final flush triggered on graceful shutdown.
+- *An embedded or external database* (SQLite/sled, or Postgres) if you outgrow
+  flat snapshots.
+
+** 5. Time semantics — does the world tick when nobody is online?
+
+DF and RimWorld pause when you stop playing; an MMO world usually keeps running.
+You must decide whether ticks are continuous real-time or gated by activity.
+This drives CPU cost (a world ticking 24/7 is always-on load) and core design.
+The template doesn't dictate it; the metrics and watchdog help you watch
+whichever you choose.
+
+** 6. The client (ASCII/minimal)
+
+The template's frontend slot is *web* (Elm).  For an ASCII colony client you
+have three reasonable paths:
+
+- A *Rust TUI client* (e.g. =ratatui=) that connects over WebSockets and reuses
+  the =lib= types for the wire format.  Most natural for ASCII; not what the
+  template scaffolds, so it is a new crate.
+- A *thin web client* that renders an ASCII/character grid in the browser over
+  WebSockets.  Here the template's *Elm frontend can be repurposed* as the
+  client — Elm's no-runtime-exceptions guarantee is attractive for a
+  long-running UI.
+- Both, sharing the protocol.
+
+Either way the client is a separate concern from the server scaffolding.
+
+** 7. Account model
+
+OIDC fits "players log in" *if* you are content delegating identity to a
+provider (Google, GitHub, Authentik, Keycloak, …).  If you want self-contained
+accounts, you would build username/password registration yourself — the
+JWT/session pieces help, but the user store is yours to write.  Decide early; it
+shapes onboarding.
+
+** 8. Scaling and sharding (later, not now)
+
+"MMO" implies many players, but do not over-engineer.  A single authoritative
+process per world scales vertically first, which is plenty for a colony sim
+where *one world is one shard*.  Multiple worlds = multiple server instances
+(the foundation supports running more than one server), which is a clean
+horizontal story.  True single-world horizontal scaling is a hard
+distributed-systems problem the template does not address — and most likely one
+you never need.
+
+* Things that are outright advantages here
+
+- *Server authority is good for integrity.* Clients send *intents*; the server
+  validates and simulates.  The template's "types as validation" and
+  semantic-error discipline directly support rigorous command validation and
+  anti-cheat — a benefit, not a gap.
+- *Latency tolerance.* A tick-based ASCII sim tolerates 100s of milliseconds of
+  latency, so =axum=/=tokio= are comfortably fast enough; none of the
+  twitch-shooter networking hardness applies.
+- *Testability.* A pure, deterministic =lib= simulation plus the template's
+  integration-test scaffolding means you can test emergent behavior, balance,
+  and regressions headlessly and reproducibly — a major asset for a genre
+  defined by emergent complexity.
+
+* Compromises and decisions to make deliberately
+
+- *License.* The default *AGPL-3.0* is network-copyleft: running a modified
+  version as a public network service triggers the obligation to share source.
+  For a hosted-only world you control, that is mostly latent; if others might
+  host it, AGPL forces openness.  Choose intentionally — for a community/hobby
+  MMO this may even be desirable.
+- *Keep the systemd modules; repurpose or drop Elm.* systemd integration is a
+  real asset for running the world daemon on Linux.  The Elm frontend is either
+  your web client or dead weight to remove.
+- *Treat the simulation loop and transport as first-class new subsystems,* not
+  afterthoughts bolted onto request handlers.  The template's value is that it
+  lets you spend your design energy *there* instead of on logging, config,
+  health, auth, builds, and deploys.
+
+* Bottom line
+
+For a server-authoritative, ASCII/minimal colony MMO, this template is a
+genuinely good foundation — far better than for a local rendered game.  It hands
+you a deployable, observable, authenticated, reproducible long-running server
+and a clean home for a pure, testable simulation core.  The work it leaves to
+you is the right work: a WebSocket (or similar) push protocol, a tick loop with
+an actor-owned world, persistence (ideally deterministic sim + event sourcing),
+and an ASCII client.  Adopt it for the =lib= + =server= + =cli= core, plan the
+transport and the loop as deliberate additions, and you will have skipped months
+of undifferentiated server plumbing.

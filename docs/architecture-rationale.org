@@ -1,0 +1,277 @@
+#+title:     Architecture & Template Rationale
+#+language:  en
+
+This document analyzes the =rust-template= architecture that =first-food= was
+generated from: what it is good for, why it was likely built the way it was,
+where it is a poor fit, and what "publishing crates" means.  It is written from
+the template's own documentation and source (its =README.org=, =llms.org=, the
+=foundation= crate's =USAGE.org=, =flake.nix=, and the CI workflows), not from
+guesswork about an unseen design.
+
+* What this template actually is
+
+A short inventory first, because the answers below all follow from it.  The
+template produces a Cargo *workspace* with up to three crates you write — =cli=,
+=server=, =lib= — plus a shared =foundation= crate (pulled in as a dependency)
+that supplies the heavy infrastructure.  Around that core it wires:
+
+- A *Nix flake* dev shell pinning the entire toolchain (Rust, Elm, formatters,
+  =just=), so every contributor and CI runner uses identical tools.
+- *Structured logging* (=tracing=), *staged configuration* (CLI flags → env →
+  TOML → defaults), and *semantic error types* (=thiserror=) as standing
+  conventions.
+- A *server* that is operable from day one: graceful shutdown, =/healthz=,
+  Prometheus =/metrics=, OpenAPI docs, optional OIDC login, and systemd /
+  launchd service modules with socket activation and watchdog support.
+- A *typed web frontend* in Elm with a hermetic Nix build.
+- *Integration tests* for both the CLI and the server.
+- *GitHub Actions* for tests, formatting, declarative branch protection, guarded
+  Dependabot auto-merge, changelog enforcement, and — optionally — automatic
+  version bumping and publishing to crates.io.
+- *LLM guardrails*: an =llms.org= / =CLAUDE.md= file plus a pre-stop review hook
+  that keep AI-assisted edits inside the conventions.
+
+The unifying idea, stated in the template's own README, is to turn on "a large
+set of engineering practices that nobody would turn down if they came pre-wired"
+from commit zero.
+
+* What sorts of projects is this best for?
+
+This is, at its core, a template for *long-lived, deployable Rust backend
+services* — and, secondarily, for *CLI tools* and *reusable libraries*.  It is
+strongest when several of the following are true:
+
+- The thing is a *network service* or *daemon* — an HTTP/JSON API, a webhook
+  receiver, a file-watcher, a queue/bridge worker, or any persistent process
+  that responds to stimuli.  (The =server= crate is deliberately framed as a
+  general long-running process, not specifically a web server.)
+- It will be *operated in production* — deployed to Linux/systemd or nix-darwin,
+  scraped by Prometheus, health-checked by a load balancer, rolled out without
+  dropping in-flight requests.
+- It needs *authentication* — OIDC single-sign-on for humans and/or JWT bearer
+  tokens for automation.
+- It benefits from a *small typed web UI* (admin panel, dashboard, status page)
+  that you want to be bulletproof rather than elaborate.
+- It is *built and run in a Nix-friendly environment* and valued for
+  *reproducibility* over years.
+- It is developed with *AI assistance* and you want the agent held to consistent
+  conventions.
+
+Concretely: internal platform/back-office services, API microservices, SSO-gated
+admin tools, ingestion/ETL bridges, observability or automation daemons, and
+homelab/self-hosted services all sit squarely in the sweet spot.  CLI utilities
+and publishable libraries are well-served too, because the configuration,
+logging, error, testing, and release scaffolding all apply — you simply drop the
+=server= crate.
+
+* Why was it built this way?  The benefits, and the likely reasoning
+
+The defining choice is *front-loading*.  Almost every decision below trades a
+little day-zero ceremony for the removal of a future retrofit.  The obstacle the
+template is fighting — explicitly, per its README — is the well-known pattern
+where teams skip "nice to have" setup and never circle back: the health endpoint
+that gets bolted on during the first outage, the metrics threaded through code
+that was never designed for them, the formatting argued about on every PR, the
+auth grafted on after launch.  Each of these is far cheaper to have from the
+start than to add later.  Reading the decisions through that lens:
+
+** Reproducibility first: the Nix dev shell
+
+*Decision:* the toolchain lives in a Nix flake; =nix develop= (or =direnv=)
+provides Rust, Elm, formatters, and tools.  *Benefit:* no "works on my machine,"
+no version drift between contributors or between local and CI, no global
+installs to manage.  *Why:* environment drift is one of the most common and most
+demoralizing sources of lost time; pinning it once removes a whole class of
+problems before the first line of application code.
+
+** A shared infrastructure crate with feature flags
+
+*Decision:* generic plumbing (config, logging, health, metrics, OpenAPI, auth,
+systemd) lives in =foundation=, gated behind =cli= / =server= / =auth= features.
+*Benefit:* you inherit a large, tested operational surface without copying it,
+and you "only pay for what you use."  *Why:* re-implementing graceful shutdown,
+socket activation, and OIDC per project is wasteful and error-prone;
+centralizing it means fixes and improvements flow to every consumer.
+
+** Operability baked into the server
+
+*Decision:* graceful shutdown, =/healthz=, =/metrics=, OpenAPI, systemd
+=sd_notify= / watchdog, and =LoadCredential= secret handling ship in the box.
+*Benefit:* the deployment pipeline never has to be retrofitted to support a
+health probe or a metric; rolling deploys don't sever connections; secrets never
+pass through environment variables.  *Why:* these are exactly the things that
+are painful to add to a running system under pressure, so they are cheapest to
+have before there is a running system.
+
+** Correctness pushed to compile time
+
+*Decision:* a banned-=unwrap=/=expect= clippy policy, "rule of least power"
+combinator lints, semantic =thiserror= variants instead of =anyhow=, and a
+"types as validation" pattern (=CliRaw= → =ConfigFileRaw= → =Config=) that
+avoids =Option= for fields that must be present.  *Benefit:* whole categories of
+panics, silent error-swallowing, and "is this set yet?" bugs become compile
+errors or are caught in review; production logs name *what* failed and *where*.
+*Why:* in a long-lived service you usually only have logs, and a panic on a rare
+code path is a latent outage — so the template spends effort up front to make
+those failures impossible or loud.
+
+** A frontend chosen for safety, not fashion
+
+*Decision:* the web UI is Elm — a statically typed, purely functional language
+that famously produces no runtime exceptions — with flat, variable-driven CSS
+and a hermetic, cache-busted Nix build.  *Benefit:* the UI cannot throw at
+runtime, the styles are readable top to bottom, and deploys never serve stale
+assets.  *Why:* a status/admin UI should be boring and reliable; Elm trades
+ecosystem size for a guarantee that matters more for this role than rich
+component libraries do.
+
+** Release and supply-chain hygiene as automation
+
+*Decision:* CI runs tests and formatting on every push; branch protection is
+declarative JSON applied automatically; Dependabot PRs auto-merge *only* if they
+touch nothing but manifests/lockfiles/workflows; a changelog entry is enforced
+per PR; and (optionally) merges to =main= bump the version, stamp the changelog,
+publish the library, and tag the release — using crates.io *trusted publishing*
+via GitHub OIDC, so no long-lived registry token is stored.  *Benefit:*
+dependencies stay current without rubber-stamping risky changes, the changelog
+writes itself, and releases are mechanical and auditable.  *Why:* release and
+dependency toil is where discipline silently erodes; automating it keeps the
+project honest without anyone having to remember to.
+
+** Designed for AI-assisted development
+
+*Decision:* the repo ships =llms.org= (symlinked as =CLAUDE.md=), a
+=template-compliance= review subagent, and a Stop hook that *forces* a
+conventions review after any code edit.  *Benefit:* an AI agent — which tends to
+dump everything into =main.rs= and reach for =match=/=unwrap=/=anyhow= — is
+steered toward the project's structure and idioms automatically.  *Why:* this
+template clearly anticipates human+agent collaboration and encodes its taste so
+the agent inherits it instead of relighting old debates on every change.
+
+** What it makes easier vs. harder
+
+*Easier:* standing up a deployable, observable, authenticated service; keeping
+code uniformly formatted and lint-clean; reproducing the build anywhere;
+updating dependencies safely; cutting releases; and onboarding an AI agent to
+the house style.
+
+*Harder / the costs:* there is a lot of machinery to understand before you can
+confidently change it (Nix, Elm, the foundation crate, half a dozen workflows).
+Nix is effectively mandatory, which is a real adoption hurdle for contributors
+who don't use it.  The stack is *opinionated* — Elm rather than a JS framework,
+org-mode docs, AGPL by default, a CLI-shaped =#[foundation_main]= entry point —
+so going against the grain means swimming upstream.  And the =foundation= crate
+is a Git dependency on a specific personal GitHub repository, which couples your
+build to that repo's availability and is worth noting for supply-chain
+considerations.
+
+* What is *not* a good fit?
+
+The template's strengths invert into weaknesses when the project isn't a
+long-lived, network-shaped, Nix-built service:
+
+- *One-off scripts and tiny utilities.* The setup cost dwarfs the work; a
+  single-file Cargo project is more honest.
+- *Teams or environments that can't adopt Nix.* The reproducibility guarantee is
+  also a hard prerequisite.
+- *Closed-source commercial distribution* under the default *AGPL-3.0* license —
+  AGPL's network-copyleft is deliberately aggressive and will not suit every
+  product.  (Changeable, but a real decision.)
+- *Embedded / =no_std= / real-time* work.  The dependency base (tokio, axum, and
+  friends) assumes a hosted std environment.
+- *Rich, interactive web apps* whose UI is the product.  Elm + flat CSS is
+  chosen for reliability over a large component ecosystem; a heavy SPA would
+  fight it.
+- *Graphical, real-time, or native-GUI applications* — including most games (see
+  below).
+
+** Does it work for local apps and locally-run games?
+
+*Local CLI / desktop-headless apps: yes, and well.* Drop the =server= crate
+(=--crates cli=, or =--crates ""= for a pure library) and you keep everything
+that matters locally — staged config with XDG discovery, structured logging,
+semantic errors, the Nix shell, the lint and test discipline, and CI.  None of
+that is server-specific.  This is arguably an excellent CLI template with an
+optional service attached.
+
+*Locally-run games: partially, and with deliberate carving.* The architecture
+splits cleanly into two halves, and they fit very differently:
+
+- The *reusable half* is a strong foundation for a game: a pure =lib= crate for
+  game logic that you can unit- and integration-test headlessly, a Nix-pinned
+  toolchain, the no-=unwrap=/types-as-validation discipline, semantic errors,
+  formatting, and CI.  A data-driven, testable simulation core benefits from all
+  of this.
+- The *service half* — the HTTP server, OIDC, Prometheus metrics, the Elm
+  frontend, and the systemd/launchd modules — is irrelevant to a local game and
+  becomes dead weight.  Worse, the entry-point shape is *CLI/request-response
+  oriented* (=#[foundation_main]= parses args, resolves config, runs once),
+  which doesn't map naturally onto a real-time render/update game loop.  A
+  graphical engine such as Bevy runs its own event loop, owns the window, and
+  brings its own logging — so it has to be integrated *alongside* the template's
+  patterns (e.g. disabling the engine's logger so it doesn't fight the one the
+  template installs), not within them.
+
+So the honest answer: a locally-run game can sit happily *on top of* this
+template's library/tooling/CI core, but the server/web/auth/observability
+machinery should be treated as not applicable, and the game executable is an
+addition the template doesn't anticipate rather than a slot it provides.  If a
+project is *primarily* a game, the template's center of gravity is in the wrong
+place; if a game is one component of a larger Rust system that also has services
+or tools, the fit is much better.
+
+* "You should be able to publish your stuff as crates!" — what your friend means
+
+A *crate* is Rust's unit of packaged, versioned, reusable code, and *crates.io*
+is the public registry the Cargo package manager downloads from.  "Publishing
+your stuff as crates" means taking the reusable parts of your code — typically
+the =lib= crate — and pushing tagged, versioned releases to crates.io so that
+you (and anyone else) can depend on them from any project with a single line in
+=Cargo.toml=, e.g. =my-lib = "1.2"=.
+
+Your friend is excited because this template doesn't just *allow* that — it
+*automates the whole release pipeline*.  When a project is generated with the
+=--public= flag, the template marks the library publishable and adds a publish
+workflow so that, on every merge to =main=, it will:
+
+- bump the version (e.g. =0.1.0= → =0.2.0=),
+- stamp the changelog and commit it back (without re-triggering CI),
+- publish the library to crates.io, and
+- tag the release commit with an annotated =v<version>= tag —
+
+all authenticated through *crates.io trusted publishing* over GitHub OIDC, so
+there is no long-lived registry token to store or leak.  A companion ABI check
+(=cargo-semver-checks=) compares your new public API against the last published
+version and flags breaking changes, and the per-PR changelog enforcement means
+release notes are always current.
+
+** Why this is worth being excited about
+
+- *Reuse without copy-paste.* A utility you write once becomes a dependency you
+  pull into every future project, with Cargo resolving and caching it.
+- *Sharing.* Anyone — collaborators, the wider community — can use your library;
+  crates.io is the canonical place Rust developers look.
+- *Free, automatic documentation.* Published crates get their API docs built and
+  hosted on docs.rs automatically.
+- *Honest versioning, mechanically.* Semantic-versioning discipline plus the ABI
+  check and automated bump/tag/publish remove the manual, error-prone parts of
+  releasing and make every release reproducible and auditable.
+- *No secret management.* Trusted publishing via OIDC means there is no
+  =CARGO_REGISTRY_TOKEN= secret sitting in the repo to rotate or worry about.
+- *Better design pressure.* Knowing a crate is public, and having
+  breaking-change detection in CI, nudges you toward stable, well-considered
+  public APIs.
+
+** Caveats worth knowing
+
+- =first-food= was *not* generated with =--public=, so right now the library has
+  =publish = false= and the publish workflow was omitted.  To use any of this,
+  regenerate with =--public= (or re-enable it: remove =publish = false=, add the
+  publish workflow, and register a crates.io trusted publisher for the repo).
+- crates.io is *public and largely permanent*: published versions can be yanked
+  (hidden from new resolution) but not deleted, and crate names are global and
+  first-come.  Publishing also means the code is open source in practice — which
+  pairs naturally with the template's AGPL default, but is a real disclosure
+  decision.
+- Trusted publishing requires a one-time setup on GitHub and crates.io (register
+  the publisher, enable auto-merge), described in the template's README.
