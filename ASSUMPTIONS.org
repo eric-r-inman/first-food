@@ -24,8 +24,8 @@ invented.  Anything not dictated by the template is listed here for review.
 * Workspace metadata (root =Cargo.toml=)
 
 - *authors* = ="Eric Rinman <ericrinman@gmail.com>"= (from the account email).
-- *repository* = ="https://github.com/ericrinman/first-food"= — *guessed* from
-  the name and email.  Update if the GitHub owner/repo differs.
+- *repository* = ="https://github.com/eric-r-inman/first-food"= — confirmed; the
+  repository was created at =eric-r-inman/first-food=.
 - *license* = ="AGPL-3.0-or-later"= — *kept the template default unchanged.* Set
   the license you actually want; the =LICENSE= file matches the default.
 
