@@ -9,7 +9,9 @@
       "Bash(FOUND=$\\(find ~/.cargo/git/checkouts -maxdepth 4 -type d -path \"*rust-template*/crates/foundation\" 2>/dev/null | head -1\\); echo \"foundation src: $FOUND\"; echo \"=== [features] ===\"; sed -n '/\\\\[features\\\\]/,/^\\\\[/p' \"$FOUND/Cargo.toml\" 2>/dev/null; echo \"=== thiserror re-export in foundation ===\"; grep -rn \"pub use thiserror\\\\|pub extern crate thiserror\\\\|pub use ::thiserror\" \"$FOUND/src\" 2>/dev/null | head)",
       "Read(//Users/ericrinman/.cargo/git/checkouts/**)",
       "Bash(echo \"CLI_EXIT=$?\")",
-      "Bash(grep -rn thiserror __TRACKED_VAR__/src)"
+      "Bash(grep -rn thiserror __TRACKED_VAR__/src)",
+      "Bash(git -C /Users/ericrinman/dev/first-food branch --show-current)",
+      "Bash(git -C /Users/ericrinman/dev/first-food remote -v)"
     ]
   },
   "hooks": {
