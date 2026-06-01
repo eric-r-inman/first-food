@@ -1,0 +1,24 @@
+[package]
+name = "first-food-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "first-food-cli"
+path = "src/main.rs"
+
+[dependencies]
+rust-template-foundation = { workspace = true, features = ["cli"] }
+first-food-lib = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tap = { workspace = true }  # For method chaining, reduces superfluous locals
+
+[lints]
+workspace = true
