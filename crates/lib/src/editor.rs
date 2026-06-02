@@ -50,11 +50,14 @@ pub struct MapEditor {
 
 impl MapEditor {
   pub fn new(data: GameData, world: World) -> Self {
+    // Start the cursor at the map center so it is immediately visible.
+    let cursor_x = world.map.width / 2;
+    let cursor_y = world.map.height / 2;
     Self {
       data,
       world,
-      cursor_x: 0,
-      cursor_y: 0,
+      cursor_x,
+      cursor_y,
       selected: 0,
       undo: Vec::new(),
       redo: Vec::new(),

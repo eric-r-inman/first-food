@@ -1,7 +1,9 @@
 //! Rendering the editor to a frame of colored Unicode text.
 //!
 //! This is a pure function of the editor state plus a prompt/status line, so it
-//! can be tested without a terminal.
+//! can be tested without a terminal.  The map is drawn first and the cursor
+//! coordinates sit on the last line, so cursor movement is visible even when the
+//! window is too short to show the whole frame.
 
 use first_food_lib::MapEditor;
 
@@ -17,23 +19,19 @@ pub fn render(
   let (cursor_x, cursor_y) = editor.cursor();
 
   let mut frame = String::new();
-  frame.push_str("first-food map editor");
-  if editor.dirty() {
-    frame.push_str("  [unsaved]");
-  }
-  frame.push_str(&format!("\ncursor {cursor_x},{cursor_y}\n\n"));
 
   for y in 0..map.height {
     for x in 0..map.width {
       let key = map.key_at(x, y).unwrap_or(' ');
-      let cell = data.terrain_by_key(key).map_or_else(
-        || key.to_string(),
-        |terrain| colorize(&terrain.glyph, &terrain.color),
-      );
+      let glyph = data
+        .terrain_by_key(key)
+        .map_or_else(|| key.to_string(), |terrain| terrain.glyph.clone());
       if x == cursor_x && y == cursor_y {
-        frame.push_str(&format!("\x1b[7m{cell}\x1b[27m"));
+        // Inverted block so the cursor stands out regardless of terrain color.
+        frame.push_str(&format!("\x1b[7m{glyph}\x1b[0m"));
       } else {
-        frame.push_str(&cell);
+        let color = data.terrain_by_key(key).map_or("white", |t| &t.color);
+        frame.push_str(&colorize(&glyph, color));
       }
     }
     frame.push('\n');
@@ -74,10 +72,15 @@ pub fn render(
      n new · d delete · p add-prop · P del-prop · e set-prop · \
      u undo · r redo · s save · q quit\n",
   );
-  match prompt {
-    Some(line) => frame.push_str(&format!("> {line}\u{2588}")),
-    None => frame.push_str(&format!("· {status}")),
-  }
+
+  // Last line: always visible, carries cursor position and either the active
+  // prompt or the status message.
+  let unsaved = if editor.dirty() { " · [unsaved]" } else { "" };
+  let tail = prompt
+    .map_or_else(|| format!("· {status}"), |line| format!("> {line}\u{2588}"));
+  frame.push_str(&format!(
+    "first-food map editor · cursor {cursor_x},{cursor_y}{unsaved}  {tail}"
+  ));
   frame
 }
 
@@ -130,6 +133,7 @@ mod tests {
     assert!(frame.contains("first-food map editor"));
     assert!(frame.contains("terrain palette:"));
     assert!(frame.contains("≈")); // river glyph from the committed data
+    assert!(frame.contains("cursor ")); // cursor coordinates on the last line
     assert!(frame.contains("· ready"));
   }
 

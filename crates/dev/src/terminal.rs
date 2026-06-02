@@ -47,7 +47,9 @@ impl RawTerminal {
     };
     Command::new("stty").args(["raw", "-echo"]).status()?;
     let mut stdout = io::stdout();
-    stdout.write_all(b"\x1b[?1049h\x1b[?25l")?;
+    // Enter the alternate screen, hide the terminal's own cursor, and select
+    // normal (not application) cursor-key mode so arrows arrive as `ESC [ A`.
+    stdout.write_all(b"\x1b[?1049h\x1b[?25l\x1b[?1l")?;
     stdout.flush()?;
     Ok(Self { saved })
   }
@@ -90,11 +92,13 @@ pub fn read_keys() -> io::Result<Vec<Key>> {
 }
 
 fn parse(bytes: &[u8]) -> Vec<Key> {
+  // Arrow keys arrive as either the normal (`ESC [ A`) or the application
+  // (`ESC O A`) cursor sequence depending on the terminal's mode; accept both.
   match bytes {
-    [0x1b, b'[', b'A', ..] => return vec![Key::Up],
-    [0x1b, b'[', b'B', ..] => return vec![Key::Down],
-    [0x1b, b'[', b'C', ..] => return vec![Key::Right],
-    [0x1b, b'[', b'D', ..] => return vec![Key::Left],
+    [0x1b, b'[', b'A', ..] | [0x1b, b'O', b'A', ..] => return vec![Key::Up],
+    [0x1b, b'[', b'B', ..] | [0x1b, b'O', b'B', ..] => return vec![Key::Down],
+    [0x1b, b'[', b'C', ..] | [0x1b, b'O', b'C', ..] => return vec![Key::Right],
+    [0x1b, b'[', b'D', ..] | [0x1b, b'O', b'D', ..] => return vec![Key::Left],
     [0x1b] => return vec![Key::Esc],
     _ => {}
   }
