@@ -23,15 +23,14 @@ pub fn render(
   for y in 0..map.height {
     for x in 0..map.width {
       let key = map.key_at(x, y).unwrap_or(' ');
-      let glyph = data
-        .terrain_by_key(key)
-        .map_or_else(|| key.to_string(), |terrain| terrain.glyph.clone());
+      let terrain = data.terrain_by_key(key);
+      let glyph = terrain.map_or_else(|| key.to_string(), |t| t.glyph.clone());
       if x == cursor_x && y == cursor_y {
         // Inverted block so the cursor stands out regardless of terrain color.
         frame.push_str(&format!("\x1b[7m{glyph}\x1b[0m"));
       } else {
-        let color = data.terrain_by_key(key).map_or("white", |t| &t.color);
-        frame.push_str(&colorize(&glyph, color));
+        frame
+          .push_str(&colorize(&glyph, terrain.map_or("white", |t| &t.color)));
       }
     }
     frame.push('\n');
