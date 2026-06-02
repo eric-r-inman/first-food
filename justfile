@@ -19,3 +19,7 @@ test-rust:
 # Build Elm then run via cargo, forwarding all arguments.
 run *args: build-elm
     cargo run {{args}}
+
+# Run the game CLI, forwarding all arguments.
+dev *args:
+    cargo run --package first-food-cli -- {{args}}
