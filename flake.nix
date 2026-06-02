@@ -115,23 +115,27 @@
         ];
         shellHook = ''
           ${foundation.lib.cargoHuskyHookSnippet pkgs}
-          echo "Rust Template development environment"
-          echo ""
-          echo "Available Cargo packages (use 'cargo build -p <name>'):"
-          cargo metadata --no-deps --format-version 1 2>/dev/null | \
-            jq -r '.packages[].name' | \
-            sort | \
-            sed 's/^/  • /' || echo "  Run 'cargo init' to get started"
+          # Send the informational banner to stderr so stdout stays clean for
+          # commands run through `nix develop --command` (such as `just dev`).
+          {
+            echo "first-food development environment"
+            echo ""
+            echo "Available Cargo packages (use 'cargo build -p <name>'):"
+            cargo metadata --no-deps --format-version 1 2>/dev/null | \
+              jq -r '.packages[].name' | \
+              sort | \
+              sed 's/^/  • /' || echo "  Run 'cargo init' to get started"
 
-          echo ""
-          echo "Elm frontend (frontend/):"
-          echo "  Build:   cd frontend && elm make src/Main.elm --output public/elm.js"
-          echo "  Format:  treefmt"
-          echo "  After changing elm.json dependency versions, regenerate Nix files:"
-          echo "    cd frontend"
-          echo "    elm2nix convert 2>/dev/null > elm-srcs.nix"
-          echo "    elm2nix snapshot"
-          echo "    git add elm-srcs.nix registry.dat && git commit"
+            echo ""
+            echo "Elm frontend (frontend/):"
+            echo "  Build:   cd frontend && elm make src/Main.elm --output public/elm.js"
+            echo "  Format:  treefmt"
+            echo "  After changing elm.json dependency versions, regenerate Nix files:"
+            echo "    cd frontend"
+            echo "    elm2nix convert 2>/dev/null > elm-srcs.nix"
+            echo "    elm2nix snapshot"
+            echo "    git add elm-srcs.nix registry.dat && git commit"
+          } 1>&2
         '';
       };
     });

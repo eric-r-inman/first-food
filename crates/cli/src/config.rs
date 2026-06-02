@@ -37,12 +37,21 @@ pub struct MapArgs {
   pub file: PathBuf,
 }
 
+/// Run the game: open the world, creating it if absent, and draw it.
+#[derive(Debug, Clone, clap::Args)]
+pub struct PlayArgs {
+  /// Path to the world save to play.
+  #[arg(long, default_value = "world.json")]
+  pub file: PathBuf,
+}
+
 #[derive(Debug, Clone, clap::Subcommand)]
 pub enum Commands {
   New(NewArgs),
   Tick(TickArgs),
   Show(ShowArgs),
   Map(MapArgs),
+  Play(PlayArgs),
 }
 
 #[derive(Debug, Clone, MergeConfig)]

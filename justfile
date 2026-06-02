@@ -20,6 +20,8 @@ test-rust:
 run *args: build-elm
     cargo run {{args}}
 
-# Run the game CLI, forwarding all arguments.
+# Run the game.  With no arguments it launches the world; any arguments are
+# forwarded to the game CLI's subcommands.  Enters the Nix shell itself, so it
+# works from a bare terminal in the project root.
 dev *args:
-    cargo run --package first-food-cli -- {{args}}
+    nix develop --command cargo run --package first-food-cli -- {{ if args == "" { "play" } else { args } }}

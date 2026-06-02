@@ -124,3 +124,36 @@ fn test_map_renders_terrain_and_characters() {
   assert!(stdout.contains('≈'), "expected a river glyph, got: {}", stdout);
   assert!(stdout.contains('☺'), "expected a character glyph, got: {}", stdout);
 }
+
+#[test]
+fn test_play_creates_then_resumes() {
+  let dir = tempfile::tempdir().expect("temp dir");
+  let save = dir.path().join("world.json");
+  let data = data_dir();
+  let data = data.to_str().expect("utf8 data path");
+  let save_arg = save.to_str().expect("utf8 save path");
+
+  // First run creates the world and draws it.
+  let first = Command::new(binary_path())
+    .args(["--data-dir", data, "play", "--file", save_arg])
+    .output()
+    .expect("failed to run play");
+  assert!(
+    first.status.success(),
+    "play (create) failed: {}",
+    String::from_utf8_lossy(&first.stderr)
+  );
+  assert!(save.exists(), "play did not create a save");
+  assert!(String::from_utf8_lossy(&first.stdout).contains('☺'));
+
+  // Second run resumes the existing world rather than failing.
+  let second = Command::new(binary_path())
+    .args(["--data-dir", data, "play", "--file", save_arg])
+    .output()
+    .expect("failed to run play again");
+  assert!(
+    second.status.success(),
+    "play (resume) failed: {}",
+    String::from_utf8_lossy(&second.stderr)
+  );
+}

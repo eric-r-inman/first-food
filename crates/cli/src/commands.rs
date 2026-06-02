@@ -39,6 +39,17 @@ pub fn run(config: Config) -> Result<ExitCode, AppError> {
       let data = GameData::load(&config.data_dir)?;
       println!("{}", render::world(&World::load(&args.file)?, &data));
     }
+    Commands::Play(args) => {
+      let data = GameData::load(&config.data_dir)?;
+      let world = if args.file.exists() {
+        World::load(&args.file)?
+      } else {
+        let world = World::new(&data);
+        world.save(&args.file)?;
+        world
+      };
+      println!("{}", render::world(&world, &data));
+    }
   }
   Ok(ExitCode::SUCCESS)
 }
