@@ -4,7 +4,8 @@
 //! simply a different set of TOML files.  Nothing here hardcodes a particular
 //! setting.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -24,13 +25,21 @@ pub struct ArchetypeDef {
 }
 
 /// A kind of terrain tile.  `key` is the compact per-tile code stored in saved
-/// maps; `glyph` and `color` are display only.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+/// maps; `glyph` and `color` are display only.  `props` holds this terrain's
+/// values for the universal property keys (see [`GameData::terrain_property_keys`]);
+/// a key absent from `props` is null for this terrain.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerrainDef {
   pub id: String,
   pub key: char,
   pub glyph: String,
   pub color: String,
+  #[serde(default, skip_serializing_if = "props_is_empty")]
+  pub props: BTreeMap<String, String>,
+}
+
+fn props_is_empty(props: &BTreeMap<String, String>) -> bool {
+  props.is_empty()
 }
 
 /// The shape and terrain palette of the starting map.  `background` and `river`
@@ -65,6 +74,9 @@ pub struct Scenario {
 pub struct GameData {
   pub archetypes: Vec<ArchetypeDef>,
   pub terrain: Vec<TerrainDef>,
+  /// The universal set of terrain property keys.  Every terrain conceptually
+  /// has each of these, defaulting to null until given a value in its `props`.
+  pub terrain_property_keys: Vec<String>,
   pub scenario: Scenario,
 }
 
@@ -75,9 +87,11 @@ struct ArchetypesFile {
   archetype: Vec<ArchetypeDef>,
 }
 
-/// The top-level shape of `terrain.toml`.
-#[derive(Debug, Deserialize)]
+/// The top-level shape of `terrain.toml`, used for both reading and writing.
+#[derive(Debug, Serialize, Deserialize)]
 struct TerrainFile {
+  #[serde(default)]
+  property_keys: Vec<String>,
   #[serde(rename = "terrain", default)]
   terrain: Vec<TerrainDef>,
 }
@@ -103,6 +117,16 @@ pub enum GameDataError {
   TerrainParse {
     path: PathBuf,
     source: toml::de::Error,
+  },
+  #[error("could not serialize terrain for save to {path}: {source}")]
+  TerrainSerialize {
+    path: PathBuf,
+    source: toml::ser::Error,
+  },
+  #[error("could not write terrain file at {path}: {source}")]
+  TerrainWrite {
+    path: PathBuf,
+    source: std::io::Error,
   },
   #[error("could not read scenario file at {path}: {source}")]
   ScenarioRead {
@@ -142,7 +166,7 @@ impl GameData {
     .archetype;
 
     let terrain_path = dir.join("terrain.toml");
-    let terrain = toml::from_str::<TerrainFile>(
+    let terrain_file = toml::from_str::<TerrainFile>(
       &fs::read_to_string(&terrain_path).map_err(|source| {
         GameDataError::TerrainRead {
           path: terrain_path.clone(),
@@ -153,8 +177,7 @@ impl GameData {
     .map_err(|source| GameDataError::TerrainParse {
       path: terrain_path,
       source,
-    })?
-    .terrain;
+    })?;
 
     let scenario_path = dir.join("scenario.toml");
     let scenario =
@@ -171,10 +194,27 @@ impl GameData {
 
     Self {
       archetypes,
-      terrain,
+      terrain: terrain_file.terrain,
+      terrain_property_keys: terrain_file.property_keys,
       scenario,
     }
     .validated()
+  }
+
+  /// Write the terrain palette and its universal property keys back to
+  /// `terrain.toml` in `dir`.
+  pub fn save_terrain(&self, dir: &Path) -> Result<(), GameDataError> {
+    let path = dir.join("terrain.toml");
+    let body = toml::to_string_pretty(&TerrainFile {
+      property_keys: self.terrain_property_keys.clone(),
+      terrain: self.terrain.clone(),
+    })
+    .map_err(|source| GameDataError::TerrainSerialize {
+      path: path.clone(),
+      source,
+    })?;
+    fs::write(&path, body)
+      .map_err(|source| GameDataError::TerrainWrite { path, source })
   }
 
   /// Look up an archetype by identifier.
@@ -247,10 +287,43 @@ mod tests {
   }
 
   #[test]
+  fn terrain_round_trips_through_toml_with_properties() {
+    let dir = tempfile::tempdir().unwrap();
+    let original = GameData::load(&workspace_data_dir()).unwrap();
+    let mut edited = original.clone();
+    edited.terrain_property_keys = vec!["walkable".to_string()];
+    if let Some(grass) = edited.terrain.iter_mut().find(|t| t.id == "grass") {
+      grass
+        .props
+        .insert("walkable".to_string(), "true".to_string());
+    }
+    edited.save_terrain(dir.path()).unwrap();
+
+    // Reload using the edited terrain file alongside the committed
+    // archetypes/scenario by copying those two in.
+    for name in ["archetypes.toml", "scenario.toml"] {
+      std::fs::copy(workspace_data_dir().join(name), dir.path().join(name))
+        .unwrap();
+    }
+    let reloaded = GameData::load(dir.path()).unwrap();
+    assert_eq!(reloaded.terrain_property_keys, vec!["walkable".to_string()]);
+    assert_eq!(
+      reloaded
+        .terrain
+        .iter()
+        .find(|t| t.id == "grass")
+        .unwrap()
+        .props["walkable"],
+      "true"
+    );
+  }
+
+  #[test]
   fn rejects_unknown_terrain_reference() {
     let data = GameData {
       archetypes: vec![],
       terrain: vec![],
+      terrain_property_keys: vec![],
       scenario: Scenario {
         settlement_name: "Test".to_string(),
         map: MapSpec {

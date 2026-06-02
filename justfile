@@ -25,3 +25,8 @@ run *args: build-elm
 # works from a bare terminal in the project root.
 dev *args:
     nix develop --command cargo run --package first-food-cli -- {{ if args == "" { "play" } else { args } }}
+
+# Open the development tool (map editor) in a separate macOS Terminal window.
+dev-tool:
+    nix develop --command cargo build --package first-food-dev
+    osascript -e 'tell application "Terminal" to do script "cd \"{{justfile_directory()}}\" && ./target/debug/first-food-dev"'

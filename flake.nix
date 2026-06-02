@@ -51,6 +51,13 @@
           description = "CLI application";
         };
         # CRATE:cli:end
+        # CRATE:dev:begin
+        dev = {
+          name = "first-food-dev";
+          binary = "first-food-dev";
+          description = "Development tool (map editor)";
+        };
+        # CRATE:dev:end
         # CRATE:server:begin
         server = {
           name = "first-food-server";

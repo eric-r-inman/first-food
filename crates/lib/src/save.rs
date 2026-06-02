@@ -70,6 +70,7 @@ mod tests {
   use crate::data::{
     ArchetypeDef, GameData, MapSpec, Scenario, ScenarioIndividual, TerrainDef,
   };
+  use std::collections::BTreeMap;
 
   fn sample_data() -> GameData {
     GameData {
@@ -87,14 +88,17 @@ mod tests {
           key: '.',
           glyph: ",".to_string(),
           color: "green".to_string(),
+          props: BTreeMap::new(),
         },
         TerrainDef {
           id: "water".to_string(),
           key: '~',
           glyph: "≈".to_string(),
           color: "blue".to_string(),
+          props: BTreeMap::new(),
         },
       ],
+      terrain_property_keys: vec![],
       scenario: Scenario {
         settlement_name: "Cedar Hollow".to_string(),
         map: MapSpec {

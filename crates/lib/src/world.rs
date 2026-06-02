@@ -23,6 +23,28 @@ pub struct Map {
   pub rows: Vec<String>,
 }
 
+impl Map {
+  /// The terrain key at a tile, or `None` if out of bounds.
+  pub fn key_at(&self, x: u32, y: u32) -> Option<char> {
+    self
+      .rows
+      .get(y as usize)
+      .and_then(|row| row.chars().nth(x as usize))
+  }
+
+  /// Set the terrain key at a tile.  Out-of-bounds coordinates are ignored.
+  /// Operates on `char`s so multi-byte glyph keys are handled correctly.
+  pub fn set(&mut self, x: u32, y: u32, key: char) {
+    if let Some(row) = self.rows.get_mut(y as usize) {
+      let mut chars: Vec<char> = row.chars().collect();
+      if let Some(cell) = chars.get_mut(x as usize) {
+        *cell = key;
+        *row = chars.into_iter().collect();
+      }
+    }
+  }
+}
+
 /// A settlement, its map, and its inhabitants at a point in simulated time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct World {
@@ -162,6 +184,7 @@ fn placements(map: &Map, background_key: char, count: usize) -> Vec<Position> {
 mod tests {
   use super::*;
   use crate::data::{ArchetypeDef, Scenario, ScenarioIndividual, TerrainDef};
+  use std::collections::BTreeMap;
 
   fn sample_data() -> GameData {
     GameData {
@@ -179,14 +202,17 @@ mod tests {
           key: '.',
           glyph: ",".to_string(),
           color: "green".to_string(),
+          props: BTreeMap::new(),
         },
         TerrainDef {
           id: "water".to_string(),
           key: '~',
           glyph: "≈".to_string(),
           color: "blue".to_string(),
+          props: BTreeMap::new(),
         },
       ],
+      terrain_property_keys: vec![],
       scenario: Scenario {
         settlement_name: "Cedar Hollow".to_string(),
         map: MapSpec {

@@ -4,6 +4,7 @@ members = [
     "crates/lib",
     "crates/cli",
     "crates/server",
+    "crates/dev",
     # CRATE_MEMBERS
 ]
 

@@ -771,6 +771,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "first-food-dev"
+version = "0.1.0"
+dependencies = [
+ "first-food-lib",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "first-food-lib"
 version = "0.1.0"
 dependencies = [
