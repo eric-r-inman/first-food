@@ -1,0 +1,138 @@
+#+title:     Dev Plan 01 — Simulation Core (lib + cli)
+#+language:  en
+
+The first development step for the game: a *data-driven, deterministic,
+serializable simulation core* in =crates/lib=, driven by =crates/cli=.  No
+server, no graphics.  Deliberately tiny — one stat, one rule, a handful of
+individuals.  The point is not gameplay; it is to lock in the four foundations
+that are expensive to retrofit: data-driven content, determinism, save/resume,
+and headless CLI control.
+
+* Objective
+
+Create a world from data, advance it by ticks, save it to disk, and reload it —
+entirely from the command line.
+
+*Definition of done:* =cargo test --workspace= is green and this works:
+
+#+begin_src sh :exports code
+first-food-cli new --out world.json
+first-food-cli tick --file world.json --count 10
+first-food-cli show --file world.json
+#+end_src
+
+…showing a few individuals whose one stat changed deterministically over ten
+ticks, surviving the save/load round-trip.
+
+* Assumptions
+
+These were chosen so work can proceed without clarifying questions; revisit any
+of them by direction.
+
+- *Save format is JSON* (=serde_json=, already in the workspace) —
+  human-readable for debugging now; swappable later.
+- *The CLI is the interim control surface.* The separate-window dev tool comes
+  once there is a running/server-hosted game to attach to; the CLI plays that
+  role for this headless step.  The windowed tool will later be schema-driven
+  off the engine's data so it stays in sync per feature.
+- *No randomness yet* — fully deterministic.  When RNG is needed it will be a
+  seeded generator stored in the save, preserving determinism.
+- *One stat, one rule:* each individual has =satiation=; it drops by a
+  per-archetype =hunger_rate= each tick.  That is the entire simulation for this
+  slice.
+- *Engine types stay theme-neutral.* The Pacific Northwest flavor lives only in
+  the =data/= values (the first "skin").
+- *Determinism discipline:* ordered collections only (=Vec= / =BTreeMap=, never
+  =HashMap=) anywhere that affects state or serialization.
+
+* Structure and dependency changes
+
+- =crates/lib=: add =serde_json= and =toml= (both already in
+  =[workspace.dependencies]=); new modules =world.rs=, =data.rs=, =save.rs=.
+- =crates/cli=: replace the placeholder =run()= with three subcommands via
+  foundation's =MergeConfig= subcommand support.
+- =data/=: a couple of small TOML files at the workspace root.
+
+* Granular steps
+
+Each step is small, ordered, and individually verifiable.
+
+** 1. Workspace prep
+
+Add =serde_json= / =toml= to =crates/lib/Cargo.toml=; create =data/=.  *Check:*
+=cargo build -p first-food-lib= still green.
+
+** 2. Core world types (=lib/src/world.rs=)
+
+Define, with =serde= + =Debug, Clone, PartialEq=:
+
+- =World { tick: u64, settlement_name: String, individuals: Vec<Individual> }=
+- =Individual { id: u32, name: String, archetype: String, satiation: i32 }=
+
+*Check:* compiles; a unit test constructs a =World= literal and round-trips it
+through =serde_json= (asserts equality).
+
+** 3. Data layer (=lib/src/data.rs= + =data/*.toml=)
+
+- =data/archetypes.toml=: =[[archetype]]= entries ={ id, name, max_satiation,
+  hunger_rate }=.
+- =data/scenario.toml=: =settlement_name= plus =[[individual]]= entries ={ name,
+  archetype }=.
+- =GameData { archetypes, scenario }= with =GameData::load(dir) -> Result<_,
+  GameDataError>= and semantic =thiserror= variants that name the failing file.
+
+*Check:* a test loads the committed =data/= and asserts the expected archetypes
+and individuals are present.
+
+** 4. World construction (=World::new(&GameData)=)
+
+Build the initial settlement: one =Individual= per scenario entry, =satiation=
+seeded from its archetype's =max_satiation=, =id= assigned in order, =tick = 0=.
+
+*Check:* a test asserts the constructed world matches the scenario
+deterministically.
+
+** 5. The tick rule (=World::tick(&mut self)= and =tick_n(n)=)
+
+Increment =tick=; for each individual, =satiation = (satiation -
+hunger_rate).max(0)= using its archetype.  No RNG, no I/O.
+
+*Check:* a test ticks a known world N times and asserts exact resulting
+satiation values.
+
+** 6. Persistence (=lib/src/save.rs=)
+
+=World::save(path)= / =World::load(path)= via =serde_json=, with semantic errors
+(=SaveWrite=, =SaveRead=, =SaveParse=, each naming the path).
+
+*Check:* a round-trip test (=save= then =load= equals original) and a
+determinism-across-save test (tick 5 → save → load → tick 5 more equals ticking
+10 straight).
+
+** 7. CLI commands (=cli/src/main.rs= + =config.rs=)
+
+Add a =Commands= enum (=New { out }=, =Tick { file, count }=, =Show { file }=)
+wired via =#[merge_config(subcommand)]=; handlers call the =lib= functions.
+=show= prints the tick plus each individual's name, archetype, and satiation.
+
+*Check:* a CLI integration test (subprocess) runs =new= → =tick= → =show= in a
+temp dir and asserts the output reflects the expected post-tick state.
+
+** 8. Verify and format
+
+=nix develop --command cargo build --workspace= and =cargo test --workspace=
+green; =treefmt --fail-on-change= clean; run the three commands manually to
+demonstrate.
+
+* Out of scope for this slice
+
+No map or tiles, no jobs or pathfinding, no multiple stats, no RNG, no server,
+no auth, no networking, no client or rendering, no dev-tool window.  Those are
+later, directed steps.
+
+* Why this is the right foundation
+
+After this, every future feature is "add a component/stat, a system, its data,
+and a test," and the architecture — data-driven, deterministic, savable,
+CLI-exercisable — already holds it.  It is the smallest thing that proves the
+whole spine.

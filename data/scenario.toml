@@ -1,0 +1,16 @@
+# Starting settlement.  This is the first "skin": a Pacific Northwest tribe in
+# roughly the Holocene.  Only the values are theme-specific; the engine is not.
+
+settlement_name = "Cedar Hollow"
+
+[[individual]]
+name = "Tahoma"
+archetype = "forager"
+
+[[individual]]
+name = "Salish"
+archetype = "fisher"
+
+[[individual]]
+name = "Kwina"
+archetype = "forager"

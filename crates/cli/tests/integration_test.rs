@@ -1,133 +1,94 @@
-use std::{path::PathBuf, process::Command};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
-fn get_binary_path() -> PathBuf {
+fn binary_path() -> PathBuf {
   let mut path =
     std::env::current_exe().expect("Failed to get current executable path");
-
-  // Navigate from the test executable to the binary
   path.pop(); // remove test executable name
   path.pop(); // remove deps dir
   path.push("first-food-cli");
-
-  // If the binary doesn't exist in release, try debug
   if !path.exists() {
     path.pop();
     path.pop();
     path.push("debug");
     path.push("first-food-cli");
   }
-
   path
+}
+
+/// The committed game data set lives at the workspace root, two levels up from
+/// this crate.
+fn data_dir() -> PathBuf {
+  Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data")
 }
 
 #[test]
 fn test_help_flag() {
-  let output = Command::new(get_binary_path()).arg("--help").output();
-
-  match output {
-    Ok(output) => {
-      assert!(
-        output.status.success(),
-        "Expected success exit code, got: {:?}",
-        output.status.code()
-      );
-      let stdout = String::from_utf8_lossy(&output.stdout);
-      assert!(
-        stdout.contains("Usage:"),
-        "Expected help text to contain 'Usage:', got: {}",
-        stdout
-      );
-    }
-    Err(e) => {
-      if e.kind() == std::io::ErrorKind::NotFound {
-        eprintln!(
-                    "Binary not found. Please build the project first with: cargo build -p first-food-cli"
-                );
-      }
-      panic!("Failed to execute binary: {}", e);
-    }
-  }
+  let output = Command::new(binary_path())
+    .arg("--help")
+    .output()
+    .expect("failed to run binary");
+  assert!(output.status.success());
+  assert!(String::from_utf8_lossy(&output.stdout).contains("Usage:"));
 }
 
 #[test]
 fn test_version_flag() {
-  let output = Command::new(get_binary_path()).arg("--version").output();
-
-  match output {
-    Ok(output) => {
-      assert!(
-        output.status.success(),
-        "Expected success exit code, got: {:?}",
-        output.status.code()
-      );
-      let stdout = String::from_utf8_lossy(&output.stdout);
-      // `#[foundation_main]` sets clap's command name to the configured
-      // app name ("first-food"), so `--version` prints "first-food
-      // <version>" rather than the Cargo package name.
-      assert!(
-        stdout.contains("first-food"),
-        "Expected version text to contain 'first-food', got: {}",
-        stdout
-      );
-    }
-    Err(e) => {
-      if e.kind() == std::io::ErrorKind::NotFound {
-        eprintln!(
-                    "Binary not found. Please build the project first with: cargo build -p first-food-cli"
-                );
-      }
-      panic!("Failed to execute binary: {}", e);
-    }
-  }
+  let output = Command::new(binary_path())
+    .arg("--version")
+    .output()
+    .expect("failed to run binary");
+  assert!(output.status.success());
+  assert!(String::from_utf8_lossy(&output.stdout).contains("first-food"));
 }
 
 #[test]
-fn test_basic_execution() {
-  let output = Command::new(get_binary_path()).output();
+fn test_new_tick_show_flow() {
+  let dir = tempfile::tempdir().expect("temp dir");
+  let save = dir.path().join("world.json");
+  let data = data_dir();
+  let data = data.to_str().expect("utf8 data path");
+  let save_arg = save.to_str().expect("utf8 save path");
 
-  match output {
-    Ok(output) => {
-      assert!(
-        output.status.success(),
-        "Expected success exit code, got: {:?}\nstderr: {}",
-        output.status.code(),
-        String::from_utf8_lossy(&output.stderr)
-      );
-    }
-    Err(e) => {
-      if e.kind() == std::io::ErrorKind::NotFound {
-        eprintln!(
-                    "Binary not found. Please build the project first with: cargo build -p first-food-cli"
-                );
-      }
-      panic!("Failed to execute binary: {}", e);
-    }
-  }
-}
+  let new = Command::new(binary_path())
+    .args(["--data-dir", data, "new", "--out", save_arg])
+    .output()
+    .expect("failed to run new");
+  assert!(
+    new.status.success(),
+    "new failed: {}",
+    String::from_utf8_lossy(&new.stderr)
+  );
+  assert!(save.exists(), "save file was not created");
 
-#[test]
-fn test_with_name_argument() {
-  let output = Command::new(get_binary_path())
-    .arg("--name")
-    .arg("Rust")
-    .output();
+  let tick = Command::new(binary_path())
+    .args([
+      "--data-dir",
+      data,
+      "tick",
+      "--file",
+      save_arg,
+      "--count",
+      "10",
+    ])
+    .output()
+    .expect("failed to run tick");
+  assert!(
+    tick.status.success(),
+    "tick failed: {}",
+    String::from_utf8_lossy(&tick.stderr)
+  );
 
-  match output {
-    Ok(output) => {
-      assert!(
-        output.status.success(),
-        "Expected success exit code, got: {:?}\nstderr: {}",
-        output.status.code(),
-        String::from_utf8_lossy(&output.stderr)
-      );
-    }
-    Err(e) => {
-      if e.kind() == std::io::ErrorKind::NotFound {
-        eprintln!(
-                    "Binary not found. Please build the project first with: cargo build -p first-food-cli"
-                );
-      }
-      panic!("Failed to execute binary: {}", e);
-    }
-  }
+  let show = Command::new(binary_path())
+    .args(["--data-dir", data, "show", "--file", save_arg])
+    .output()
+    .expect("failed to run show");
+  assert!(
+    show.status.success(),
+    "show failed: {}",
+    String::from_utf8_lossy(&show.stderr)
+  );
+  let stdout = String::from_utf8_lossy(&show.stdout);
+  assert!(stdout.contains("Cedar Hollow"), "got: {}", stdout);
+  assert!(stdout.contains("tick 10"), "got: {}", stdout);
 }

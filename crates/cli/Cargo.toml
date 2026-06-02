@@ -20,5 +20,8 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tap = { workspace = true }  # For method chaining, reduces superfluous locals
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [lints]
 workspace = true

@@ -12,11 +12,21 @@ Applied =~/dev/rust-template= with the default crate set (=cli=, =server=,
 --fail-on-change= is clean.  See =ASSUMPTIONS.org= for the decisions and the few
 template fixes that were needed.
 
+** Dev Plan 01 — simulation core (lib + cli)
+
+Built the data-driven, deterministic, serializable simulation core per
+=docs/dev-plan-01-sim-core.org=.  =first-food-lib= now has a =World= of
+=Individual=\s built from a =GameData= content set (=data/*.toml=), a tick rule
+(satiation decays per archetype), and JSON save/load.  =first-food-cli= drives
+it headlessly with =new= / =tick= / =show= subcommands.  Determinism and
+save/resume are covered by tests, including a save-then-resume run that matches
+an uninterrupted one.
+
 * Next
 
-- Decide the project's purpose and replace the placeholder =README.org=,
-  =flake.nix= description, and the placeholder =run()= / route handlers in the
-  =cli= and =server= crates.
-- Confirm the license and the GitHub repository URL in the root =Cargo.toml=.
-- Remove any crates not needed once the purpose is known (e.g. drop =server= for
-  a pure CLI, or =cli= for a pure service).
+- The simulation is one stat and one rule by design; extend it only by direction
+  (more stats, jobs, a map, etc.).
+- When a running/server-hosted game exists, build the separate-window dev tool
+  (schema-driven off the engine's data) and update it per feature.
+- Decide the project's purpose for =README.org= / =flake.nix= description; the
+  placeholder =server= crate is still untouched.

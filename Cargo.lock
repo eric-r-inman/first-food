@@ -765,6 +765,7 @@ dependencies = [
  "rust-template-foundation",
  "serde",
  "tap",
+ "tempfile",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -776,8 +777,11 @@ dependencies = [
  "cargo-husky",
  "rust-template-foundation",
  "serde",
+ "serde_json",
  "tap",
+ "tempfile",
  "thiserror 2.0.18",
+ "toml",
  "tracing",
 ]
 
