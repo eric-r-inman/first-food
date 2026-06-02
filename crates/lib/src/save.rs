@@ -67,7 +67,9 @@ impl World {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::data::{ArchetypeDef, GameData, Scenario, ScenarioIndividual};
+  use crate::data::{
+    ArchetypeDef, GameData, MapSpec, Scenario, ScenarioIndividual, TerrainDef,
+  };
 
   fn sample_data() -> GameData {
     GameData {
@@ -76,9 +78,31 @@ mod tests {
         name: "Forager".to_string(),
         max_satiation: 100,
         hunger_rate: 2,
+        glyph: "☺".to_string(),
+        color: "bright_yellow".to_string(),
       }],
+      terrain: vec![
+        TerrainDef {
+          id: "grass".to_string(),
+          key: '.',
+          glyph: ",".to_string(),
+          color: "green".to_string(),
+        },
+        TerrainDef {
+          id: "water".to_string(),
+          key: '~',
+          glyph: "≈".to_string(),
+          color: "blue".to_string(),
+        },
+      ],
       scenario: Scenario {
         settlement_name: "Cedar Hollow".to_string(),
+        map: MapSpec {
+          width: 12,
+          height: 6,
+          background: "grass".to_string(),
+          river: "water".to_string(),
+        },
         individuals: vec![ScenarioIndividual {
           name: "Tahoma".to_string(),
           archetype: "forager".to_string(),

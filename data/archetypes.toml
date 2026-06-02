@@ -1,14 +1,19 @@
 # Inhabitant archetypes.  These are theme-specific content values; the engine
 # treats them generically, so a different theme is just a different data set.
+# `glyph` and `color` control how an inhabitant is drawn on the map.
 
 [[archetype]]
 id = "forager"
 name = "Forager"
 max_satiation = 100
 hunger_rate = 2
+glyph = "☺"
+color = "bright_yellow"
 
 [[archetype]]
 id = "fisher"
 name = "Fisher"
 max_satiation = 100
 hunger_rate = 3
+glyph = "☺"
+color = "bright_cyan"

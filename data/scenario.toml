@@ -3,6 +3,14 @@
 
 settlement_name = "Cedar Hollow"
 
+# The starting map: a grassland with a river running through it.  `background`
+# and `river` name terrain ids from terrain.toml.
+[map]
+width = 50
+height = 18
+background = "grass"
+river = "water"
+
 [[individual]]
 name = "Tahoma"
 archetype = "forager"

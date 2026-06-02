@@ -1,0 +1,24 @@
+{
+  "tick": 0,
+  "settlement_name": "Cedar Hollow",
+  "individuals": [
+    {
+      "id": 0,
+      "name": "Tahoma",
+      "archetype": "forager",
+      "satiation": 100
+    },
+    {
+      "id": 1,
+      "name": "Salish",
+      "archetype": "fisher",
+      "satiation": 100
+    },
+    {
+      "id": 2,
+      "name": "Kwina",
+      "archetype": "forager",
+      "satiation": 100
+    }
+  ]
+}

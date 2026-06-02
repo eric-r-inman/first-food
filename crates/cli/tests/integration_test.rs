@@ -92,3 +92,35 @@ fn test_new_tick_show_flow() {
   assert!(stdout.contains("Cedar Hollow"), "got: {}", stdout);
   assert!(stdout.contains("tick 10"), "got: {}", stdout);
 }
+
+#[test]
+fn test_map_renders_terrain_and_characters() {
+  let dir = tempfile::tempdir().expect("temp dir");
+  let save = dir.path().join("world.json");
+  let data = data_dir();
+  let data = data.to_str().expect("utf8 data path");
+  let save_arg = save.to_str().expect("utf8 save path");
+
+  let new = Command::new(binary_path())
+    .args(["--data-dir", data, "new", "--out", save_arg])
+    .output()
+    .expect("failed to run new");
+  assert!(
+    new.status.success(),
+    "new failed: {}",
+    String::from_utf8_lossy(&new.stderr)
+  );
+
+  let map = Command::new(binary_path())
+    .args(["--data-dir", data, "map", "--file", save_arg])
+    .output()
+    .expect("failed to run map");
+  assert!(
+    map.status.success(),
+    "map failed: {}",
+    String::from_utf8_lossy(&map.stderr)
+  );
+  let stdout = String::from_utf8_lossy(&map.stdout);
+  assert!(stdout.contains('≈'), "expected a river glyph, got: {}", stdout);
+  assert!(stdout.contains('☺'), "expected a character glyph, got: {}", stdout);
+}

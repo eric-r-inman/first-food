@@ -1,0 +1,16 @@
+# Terrain types.  `key` is the compact code stored per tile in a saved map;
+# `glyph` and `color` are display only, so a visual designer can retheme the
+# look by editing this file without touching code or invalidating saves.
+# Colors are names understood by the renderer (e.g. green, blue, bright_yellow).
+
+[[terrain]]
+id = "grass"
+key = "."
+glyph = ","
+color = "green"
+
+[[terrain]]
+id = "water"
+key = "~"
+glyph = "≈"
+color = "blue"

@@ -4,6 +4,7 @@
 //! stdout; diagnostics go through `tracing` to stderr.
 
 use crate::config::{Commands, Config};
+use crate::render;
 use first_food_lib::{GameData, World};
 use std::process::ExitCode;
 use thiserror::Error;
@@ -20,8 +21,11 @@ pub enum AppError {
 pub fn run(config: Config) -> Result<ExitCode, AppError> {
   match config.command {
     Commands::New(args) => {
-      World::new(&GameData::load(&config.data_dir)?).save(&args.out)?;
+      let data = GameData::load(&config.data_dir)?;
+      let world = World::new(&data);
+      world.save(&args.out)?;
       println!("created new world at {}", args.out.display());
+      println!("{}", render::world(&world, &data));
     }
     Commands::Tick(args) => {
       let data = GameData::load(&config.data_dir)?;
@@ -31,6 +35,10 @@ pub fn run(config: Config) -> Result<ExitCode, AppError> {
       println!("advanced {} to tick {}", args.file.display(), world.tick);
     }
     Commands::Show(args) => show(&World::load(&args.file)?),
+    Commands::Map(args) => {
+      let data = GameData::load(&config.data_dir)?;
+      println!("{}", render::world(&World::load(&args.file)?, &data));
+    }
   }
   Ok(ExitCode::SUCCESS)
 }

@@ -6,6 +6,7 @@
 
 mod commands;
 mod config;
+mod render;
 
 use config::Config;
 use rust_template_foundation::main as foundation_main;

@@ -29,11 +29,20 @@ pub struct ShowArgs {
   pub file: PathBuf,
 }
 
+/// Draw a world save as a colored Unicode map.
+#[derive(Debug, Clone, clap::Args)]
+pub struct MapArgs {
+  /// Path to the world save to draw.
+  #[arg(long)]
+  pub file: PathBuf,
+}
+
 #[derive(Debug, Clone, clap::Subcommand)]
 pub enum Commands {
   New(NewArgs),
   Tick(TickArgs),
   Show(ShowArgs),
+  Map(MapArgs),
 }
 
 #[derive(Debug, Clone, MergeConfig)]
