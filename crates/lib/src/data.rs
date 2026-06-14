@@ -127,6 +127,16 @@ struct UnitFile {
   unit: Vec<TerrainDef>,
 }
 
+/// The top-level shape of `landmarks.toml`.  Landmarks reuse the terrain
+/// definition shape and form a layer placed over the terrain.
+#[derive(Debug, Serialize, Deserialize)]
+struct LandmarkFile {
+  #[serde(default)]
+  property_keys: Vec<String>,
+  #[serde(rename = "landmark", default)]
+  landmark: Vec<TerrainDef>,
+}
+
 #[derive(Debug, Error)]
 pub enum GameDataError {
   #[error("could not read archetypes file at {path}: {source}")]
@@ -186,6 +196,16 @@ pub enum GameDataError {
   },
   #[error("could not parse units file at {path}: {source}")]
   UnitsParse {
+    path: PathBuf,
+    source: toml::de::Error,
+  },
+  #[error("could not read landmarks file at {path}: {source}")]
+  LandmarksRead {
+    path: PathBuf,
+    source: std::io::Error,
+  },
+  #[error("could not parse landmarks file at {path}: {source}")]
+  LandmarksParse {
     path: PathBuf,
     source: toml::de::Error,
   },
@@ -377,6 +397,23 @@ pub fn load_units(
   )?)
   .map_err(|source| GameDataError::UnitsParse { path, source })?;
   Ok((file.property_keys, file.unit))
+}
+
+/// Load the landmark palette and its universal property keys from
+/// `landmarks.toml` in `dir`.  Landmarks are a layer placed over the terrain.
+pub fn load_landmarks(
+  dir: &Path,
+) -> Result<(Vec<String>, Vec<TerrainDef>), GameDataError> {
+  let path = dir.join("landmarks.toml");
+  let file =
+    toml::from_str::<LandmarkFile>(&fs::read_to_string(&path).map_err(
+      |source| GameDataError::LandmarksRead {
+        path: path.clone(),
+        source,
+      },
+    )?)
+    .map_err(|source| GameDataError::LandmarksParse { path, source })?;
+  Ok((file.property_keys, file.landmark))
 }
 
 #[cfg(test)]

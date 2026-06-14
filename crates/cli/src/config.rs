@@ -60,6 +60,8 @@ pub enum Commands {
   Buildings,
   /// Print the unit palette as JSON (consumed by the browser editors).
   Units,
+  /// Print the landmark palette as JSON (consumed by the browser editors).
+  Landmarks,
 }
 
 #[derive(Debug, Clone, MergeConfig)]

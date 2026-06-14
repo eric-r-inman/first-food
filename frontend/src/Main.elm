@@ -142,6 +142,7 @@ type Layer
     | ResourceLayer
     | BuildingLayer
     | UnitLayer
+    | LandmarkLayer
 
 
 {-| An empty overlay cell (no resource / no building) is stored as a space.
@@ -152,7 +153,7 @@ empty =
 
 
 type alias Snapshot =
-    { terrain : MapData, resources : MapData, buildings : MapData, units : MapData }
+    { terrain : MapData, resources : MapData, buildings : MapData, units : MapData, landmarks : MapData }
 
 
 type alias Model =
@@ -164,10 +165,13 @@ type alias Model =
     , byBldKey : Dict Char Terrain
     , units : List Terrain
     , byUnitKey : Dict Char Terrain
+    , landmarks : List Terrain
+    , byLmkKey : Dict Char Terrain
     , map : MapData
     , resourceMap : MapData
     , buildingMap : MapData
     , unitMap : MapData
+    , landmarkMap : MapData
     , name : String
     , tool : Tool
     , layer : Layer
@@ -175,6 +179,7 @@ type alias Model =
     , activeResource : Char
     , activeBuilding : Char
     , activeUnit : Char
+    , activeLandmark : Char
     , vx : Int
     , vy : Int
     , cursor : Maybe ( Int, Int )
@@ -221,10 +226,13 @@ init _ =
       , byBldKey = Dict.empty
       , units = []
       , byUnitKey = Dict.empty
+      , landmarks = []
+      , byLmkKey = Dict.empty
       , map = makeMap 64 40 defaultFill
       , resourceMap = makeMap 64 40 empty
       , buildingMap = makeMap 64 40 empty
       , unitMap = makeMap 64 40 empty
+      , landmarkMap = makeMap 64 40 empty
       , name = "untitled"
       , tool = Paint
       , layer = TerrainLayer
@@ -232,6 +240,7 @@ init _ =
       , activeResource = empty
       , activeBuilding = empty
       , activeUnit = empty
+      , activeLandmark = empty
       , vx = 0
       , vy = 0
       , cursor = Nothing
@@ -247,6 +256,7 @@ init _ =
         , Http.get { url = "resources.json", expect = Http.expectJson GotResources (D.field "resources" (D.list terrainDecoder)) }
         , Http.get { url = "buildings.json", expect = Http.expectJson GotBuildings (D.field "buildings" (D.list terrainDecoder)) }
         , Http.get { url = "units.json", expect = Http.expectJson GotUnits (D.field "units" (D.list terrainDecoder)) }
+        , Http.get { url = "landmarks.json", expect = Http.expectJson GotLandmarks (D.field "landmarks" (D.list terrainDecoder)) }
         ]
     )
 
@@ -260,10 +270,12 @@ type Msg
     | GotResources (Result Http.Error (List Terrain))
     | GotBuildings (Result Http.Error (List Terrain))
     | GotUnits (Result Http.Error (List Terrain))
+    | GotLandmarks (Result Http.Error (List Terrain))
     | SelectTerrain Char
     | SelectResource Char
     | SelectBuilding Char
     | SelectUnit Char
+    | SelectLandmark Char
     | SetLayer Layer
     | SelectTool Tool
     | CellMouseDown Int Int
@@ -324,6 +336,12 @@ update msg model =
         GotUnits (Err _) ->
             ( { model | status = "could not load units.json" }, Cmd.none )
 
+        GotLandmarks (Ok landmarks) ->
+            ( { model | landmarks = landmarks, byLmkKey = byKeyOf landmarks, activeLandmark = firstKey landmarks }, Cmd.none )
+
+        GotLandmarks (Err _) ->
+            ( { model | status = "could not load landmarks.json" }, Cmd.none )
+
         SelectTerrain k ->
             ( { model | active = k, layer = TerrainLayer }, Cmd.none )
 
@@ -335,6 +353,9 @@ update msg model =
 
         SelectUnit k ->
             ( { model | activeUnit = k, layer = UnitLayer }, Cmd.none )
+
+        SelectLandmark k ->
+            ( { model | activeLandmark = k, layer = LandmarkLayer }, Cmd.none )
 
         SetLayer layer ->
             ( { model | layer = layer }, Cmd.none )
@@ -396,7 +417,7 @@ update msg model =
                 pushed =
                     pushHistory model
             in
-            ( { pushed | map = makeMap w h (grasslandKey model), resourceMap = makeMap w h empty, buildingMap = makeMap w h empty, unitMap = makeMap w h empty, vx = 0, vy = 0, status = "new map" }, Cmd.none )
+            ( { pushed | map = makeMap w h (grasslandKey model), resourceMap = makeMap w h empty, buildingMap = makeMap w h empty, unitMap = makeMap w h empty, landmarkMap = makeMap w h empty, vx = 0, vy = 0, status = "new map" }, Cmd.none )
 
         Undo ->
             case model.history of
@@ -428,7 +449,7 @@ update msg model =
         FileLoaded contents ->
             case D.decodeString mapDecoder contents of
                 Ok loaded ->
-                    ( { model | name = loaded.name, map = loaded.terrain, resourceMap = loaded.resources, buildingMap = loaded.buildings, unitMap = loaded.units, history = [], future = [], vx = 0, vy = 0, status = "loaded " ++ loaded.name }, Cmd.none )
+                    ( { model | name = loaded.name, map = loaded.terrain, resourceMap = loaded.resources, buildingMap = loaded.buildings, unitMap = loaded.units, landmarkMap = loaded.landmarks, history = [], future = [], vx = 0, vy = 0, status = "loaded " ++ loaded.name }, Cmd.none )
 
                 Err _ ->
                     ( { model | status = "could not parse that map file" }, Cmd.none )
@@ -441,12 +462,12 @@ firstKey list =
 
 current : Model -> Snapshot
 current model =
-    { terrain = model.map, resources = model.resourceMap, buildings = model.buildingMap, units = model.unitMap }
+    { terrain = model.map, resources = model.resourceMap, buildings = model.buildingMap, units = model.unitMap, landmarks = model.landmarkMap }
 
 
 restore : Snapshot -> Model -> Model
 restore snap model =
-    { model | map = snap.terrain, resourceMap = snap.resources, buildingMap = snap.buildings, unitMap = snap.units }
+    { model | map = snap.terrain, resourceMap = snap.resources, buildingMap = snap.buildings, unitMap = snap.units, landmarkMap = snap.landmarks }
 
 
 pushHistory : Model -> Model
@@ -469,6 +490,9 @@ activeGrid model =
         UnitLayer ->
             model.unitMap
 
+        LandmarkLayer ->
+            model.landmarkMap
+
 
 setActiveGrid : MapData -> Model -> Model
 setActiveGrid grid model =
@@ -485,6 +509,9 @@ setActiveGrid grid model =
         UnitLayer ->
             { model | unitMap = grid }
 
+        LandmarkLayer ->
+            { model | landmarkMap = grid }
+
 
 activeKey : Model -> Char
 activeKey model =
@@ -500,6 +527,9 @@ activeKey model =
 
         UnitLayer ->
             model.activeUnit
+
+        LandmarkLayer ->
+            model.activeLandmark
 
 
 eyedrop : Int -> Int -> Model -> Model
@@ -520,6 +550,9 @@ eyedrop x y model =
 
         UnitLayer ->
             { model | activeUnit = picked }
+
+        LandmarkLayer ->
+            { model | activeLandmark = picked }
 
 
 dropExtension : String -> String
@@ -547,22 +580,24 @@ encodeMap model =
             , ( "resources", E.list E.string (rowsToStrings model.resourceMap) )
             , ( "buildings", E.list E.string (rowsToStrings model.buildingMap) )
             , ( "units", E.list E.string (rowsToStrings model.unitMap) )
+            , ( "landmarks", E.list E.string (rowsToStrings model.landmarkMap) )
             ]
 
 
 type alias LoadedMap =
-    { name : String, terrain : MapData, resources : MapData, buildings : MapData, units : MapData }
+    { name : String, terrain : MapData, resources : MapData, buildings : MapData, units : MapData, landmarks : MapData }
 
 
 mapDecoder : D.Decoder LoadedMap
 mapDecoder =
-    D.map7
-        (\name w h rows mres mbld munits ->
+    D.map8
+        (\name w h rows mres mbld munits mlmk ->
             { name = name
             , terrain = { width = w, height = h, rows = rowsFromStrings rows }
             , resources = overlayGrid w h mres
             , buildings = overlayGrid w h mbld
             , units = overlayGrid w h munits
+            , landmarks = overlayGrid w h mlmk
             }
         )
         (D.field "name" D.string)
@@ -572,6 +607,7 @@ mapDecoder =
         (D.maybe (D.field "resources" (D.list D.string)))
         (D.maybe (D.field "buildings" (D.list D.string)))
         (D.maybe (D.field "units" (D.list D.string)))
+        (D.maybe (D.field "landmarks" (D.list D.string)))
 
 
 overlayGrid : Int -> Int -> Maybe (List String) -> MapData
@@ -590,14 +626,29 @@ overlayGrid w h rows =
 
 view : Model -> Html Msg
 view model =
-    div [ A.style "font-family" "monospace", A.style "background" "#0f1115", A.style "color" "#ddd", A.style "min-height" "100vh", A.style "padding" "8px" ]
-        [ div [ A.style "display" "flex", A.style "gap" "16px", A.style "flex-wrap" "wrap", A.style "align-items" "flex-start" ]
-            [ layerView model
-            , paletteView model
-            , toolsView model
+    div [ A.style "font-family" "monospace", A.style "background" "#0f1115", A.style "color" "#ddd", A.style "min-height" "100vh", A.style "padding" "8px", A.style "display" "flex", A.style "gap" "16px", A.style "align-items" "flex-start" ]
+        [ div [ A.style "flex" "1", A.style "min-width" "0" ]
+            [ div [ A.style "display" "flex", A.style "gap" "16px", A.style "flex-wrap" "wrap", A.style "align-items" "flex-start" ]
+                [ layerView model
+                , paletteView model
+                , toolsView model
+                ]
+            , gridView model
+            , statusView model
             ]
-        , gridView model
-        , statusView model
+        , editorsColumn
+        ]
+
+
+editorsColumn : Html Msg
+editorsColumn =
+    div [ A.style "display" "flex", A.style "flex-direction" "column", A.style "gap" "4px", A.style "min-width" "150px" ]
+        [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "editors" ]
+        , editorLink "/terrain.html" "edit terrain ↗"
+        , editorLink "/resources.html" "edit resources ↗"
+        , editorLink "/buildings.html" "edit buildings ↗"
+        , editorLink "/units.html" "edit units ↗"
+        , editorLink "/landmarks.html" "edit landmarks ↗"
         ]
 
 
@@ -610,6 +661,7 @@ layerView model =
             , layerButton model ResourceLayer "resources"
             , layerButton model BuildingLayer "buildings"
             , layerButton model UnitLayer "units"
+            , layerButton model LandmarkLayer "landmarks"
             ]
         ]
 
@@ -641,6 +693,9 @@ paletteView model =
 
         UnitLayer ->
             paletteSection "units" (noneButton SelectUnit model.activeUnit :: List.map (paletteButton SelectUnit model.activeUnit) model.units)
+
+        LandmarkLayer ->
+            paletteSection "landmarks" (noneButton SelectLandmark model.activeLandmark :: List.map (paletteButton SelectLandmark model.activeLandmark) model.landmarks)
 
 
 paletteSection : String -> List (Html Msg) -> Html Msg
@@ -690,10 +745,6 @@ toolsView model =
             , plainButton Redo "redo"
             , plainButton SaveMap "save"
             , plainButton LoadRequested "load"
-            , editorLink "/terrain.html" "edit terrain ↗"
-            , editorLink "/resources.html" "edit resources ↗"
-            , editorLink "/buildings.html" "edit buildings ↗"
-            , editorLink "/units.html" "edit units ↗"
             ]
         , div [ A.style "margin-top" "8px", A.style "display" "flex", A.style "gap" "4px", A.style "align-items" "center" ]
             [ text "new "
@@ -848,6 +899,7 @@ topCell model x y =
         firstJust
             [ overlayAt x y model.unitMap model.byUnitKey
             , overlayAt x y model.buildingMap model.byBldKey
+            , overlayAt x y model.landmarkMap model.byLmkKey
             , overlayAt x y model.resourceMap model.byResKey
             ]
     of
@@ -904,6 +956,9 @@ statusView model =
 
                 UnitLayer ->
                     "unit:" ++ overlayName model.activeUnit model.byUnitKey
+
+                LandmarkLayer ->
+                    "landmark:" ++ overlayName model.activeLandmark model.byLmkKey
     in
     div [ A.style "margin-top" "8px", A.style "opacity" "0.85" ]
         [ text
