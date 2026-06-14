@@ -10,6 +10,7 @@ picks up the change on the next `just editor`.
 -}
 
 import Browser
+import Char
 import Dict exposing (Dict)
 import File.Download as Download
 import Html exposing (Html, button, div, input, option, select, span, text)
@@ -38,6 +39,8 @@ type alias Model =
     , selected : Int
     , newProp : String
     , status : String
+    , pickerOpen : Bool
+    , codepoint : String
     }
 
 
@@ -65,7 +68,7 @@ paletteDecoder =
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { terrains = [], propertyKeys = [], selected = 0, newProp = "", status = "loading palette…" }
+    ( { terrains = [], propertyKeys = [], selected = 0, newProp = "", status = "loading palette…", pickerOpen = False, codepoint = "" }
     , Http.get { url = "palette.json", expect = Http.expectJson GotPalette paletteDecoder }
     )
 
@@ -88,6 +91,9 @@ type Msg
     | AddProp
     | RemoveProp String
     | Save
+    | TogglePicker
+    | CodepointInput String
+    | ApplyCodepoint
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -180,6 +186,22 @@ update msg model =
             , Download.string "terrain.toml" "application/toml" (toToml model)
             )
 
+        TogglePicker ->
+            ( { model | pickerOpen = not model.pickerOpen }, Cmd.none )
+
+        CodepointInput v ->
+            ( { model | codepoint = v }, Cmd.none )
+
+        ApplyCodepoint ->
+            case parseCodepoint model.codepoint of
+                Just code ->
+                    ( updateSelected (\t -> { t | glyph = String.fromChar (Char.fromCode code) }) model
+                    , Cmd.none
+                    )
+
+                Nothing ->
+                    ( { model | status = "not a valid hex codepoint" }, Cmd.none )
+
 
 updateSelected : (Terrain -> Terrain) -> Model -> Model
 updateSelected f model =
@@ -203,6 +225,45 @@ freeKey used =
         |> List.filter (\c -> not (List.member c used))
         |> List.head
         |> Maybe.withDefault "?"
+
+
+parseCodepoint : String -> Maybe Int
+parseCodepoint raw =
+    raw |> String.trim |> String.toUpper |> stripPrefix "U+" |> stripPrefix "0X" |> hexToInt
+
+
+stripPrefix : String -> String -> String
+stripPrefix prefix s =
+    if String.startsWith prefix s then
+        String.dropLeft (String.length prefix) s
+
+    else
+        s
+
+
+hexToInt : String -> Maybe Int
+hexToInt s =
+    if String.isEmpty s then
+        Nothing
+
+    else
+        String.foldl (\c acc -> Maybe.map2 (\n d -> n * 16 + d) acc (hexDigit c)) (Just 0) s
+
+
+hexDigit : Char -> Maybe Int
+hexDigit c =
+    let
+        n =
+            Char.toCode c
+    in
+    if n >= 48 && n <= 57 then
+        Just (n - 48)
+
+    else if n >= 65 && n <= 70 then
+        Just (n - 55)
+
+    else
+        Nothing
 
 
 
@@ -295,7 +356,7 @@ detailView model =
                 [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "edit terrain" ]
                 , field "id" (textInput t.id SetId)
                 , field "key" (textInput t.key SetKey)
-                , field "glyph" (textInput t.glyph SetGlyph)
+                , glyphSection model t
                 , field "color" (colorSelect t.color)
                 , div [ A.style "margin" "6px 0" ]
                     [ text "preview: "
@@ -332,6 +393,62 @@ propKeyRow key =
         [ text key
         , button [ onClick (RemoveProp key), A.style "background" "#1a1d24", A.style "color" "#d88", A.style "border" "1px solid #333", A.style "cursor" "pointer" ] [ text "×" ]
         ]
+
+
+glyphSection : Model -> Terrain -> Html Msg
+glyphSection model t =
+    div []
+        [ field "glyph"
+            (div [ A.style "display" "flex", A.style "gap" "6px", A.style "align-items" "center" ]
+                [ textInput t.glyph SetGlyph
+                , plainButton TogglePicker
+                    (if model.pickerOpen then
+                        "close"
+
+                     else
+                        "pick…"
+                    )
+                ]
+            )
+        , if model.pickerOpen then
+            div [ A.style "margin" "4px 0 4px 98px" ]
+                [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "ASCII (click to set)" ]
+                , asciiTable
+                , div [ A.style "margin-top" "8px", A.style "display" "flex", A.style "gap" "6px", A.style "align-items" "center" ]
+                    [ span [ A.style "opacity" "0.8" ] [ text "unicode U+" ]
+                    , textInput model.codepoint CodepointInput
+                    , plainButton ApplyCodepoint "set"
+                    ]
+                ]
+
+          else
+            text ""
+        ]
+
+
+asciiTable : Html Msg
+asciiTable =
+    div [ A.style "display" "flex", A.style "flex-wrap" "wrap", A.style "max-width" "340px", A.style "gap" "2px" ]
+        (List.range 32 126 |> List.map asciiCell)
+
+
+asciiCell : Int -> Html Msg
+asciiCell code =
+    let
+        ch =
+            String.fromChar (Char.fromCode code)
+    in
+    button
+        [ onClick (SetGlyph ch)
+        , A.title (String.fromInt code)
+        , A.style "width" "20px"
+        , A.style "background" "#1a1d24"
+        , A.style "color" "#ddd"
+        , A.style "border" "1px solid #333"
+        , A.style "cursor" "pointer"
+        , A.style "font-family" "monospace"
+        ]
+        [ text ch ]
 
 
 field : String -> Html Msg -> Html Msg
