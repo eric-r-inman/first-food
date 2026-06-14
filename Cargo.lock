@@ -775,6 +775,7 @@ name = "first-food-dev"
 version = "0.1.0"
 dependencies = [
  "first-food-lib",
+ "tap",
  "thiserror 2.0.18",
 ]
 

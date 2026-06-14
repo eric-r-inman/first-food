@@ -23,6 +23,29 @@ cargo test --workspace
 
 Tests and test scripts must exit with a proper error code.
 
+** Dependencies
+
+Every dependency in a ~Cargo.toml~ — whether a workspace
+~[workspace.dependencies]~ entry or a crate's ~[dependencies]~ /
+~[dev-dependencies]~ — must carry a comment explaining /why/ the crate is used:
+its concrete role in this project, not merely what it is.  A bare dependency
+line forces every future reader to guess what pulled it in.
+
+Prefer a short line-above comment, written as a complete sentence:
+
+#+begin_src toml :exports code
+# Derives the typed models for the config file and the request payloads.
+serde = { version = "1.0", features = ["derive"] }
+#+end_src
+
+The same rule applies to Nix dependencies: every entry in a devShell's
+~buildInputs~ and in a package's ~buildInputs~ / ~nativeBuildInputs~ needs a
+comment explaining why it is present.  A single grouped comment may cover a set
+that is obviously related (e.g. a formatter and the per-language binaries it
+drives); otherwise comment each input.
+
+Add the comment as you introduce the dependency, not as a later cleanup pass.
+
 * Error handling
 
 This project uses *semantic error types* with ~thiserror~ rather than generic
@@ -227,3 +250,28 @@ See [[file:docs/systemd.org][docs/systemd.org]] for the full pattern and how to 
 - ~info!~ — important state changes.
 - ~debug!~ — detailed diagnostic information.
 - ~trace!~ — very verbose debugging.
+
+* Changelog conventions
+
+~CHANGELOG.org~'s ~* Upcoming~ section uses three subheadings:
+
+- ~** Added~ — features or behavior added.  This is the loose "what's new"
+  section: anything an adopter would describe as "the next release does X now"
+  belongs here, even when previous releases also did something different in the
+  same surface.
+- ~** Fixes~ — bug fixes.
+- ~** Breaking~ — backward-incompatible changes.  Required when the ABI check
+  proves a public-signature break; recommended whenever behavioral breakage
+  shipped that downstream consumers should know about, even when signatures are
+  preserved.
+
+A single change may appear under more than one subheading when it fits more than
+one.  A fix that also adds an option to opt out of the broken behavior belongs
+under both ~** Added~ and ~** Fixes~.
+
+Each entry should be a complete sentence-or-two written for an adopter reading
+the release notes, not a reviewer reading the diff.  Name what changed in terms
+of the surface the adopter sees, not the implementation.
+
+Write each entry as a numbered list item (~1.~, ~2.~, …) under its subheading,
+not a dash bullet.

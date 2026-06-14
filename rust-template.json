@@ -1,3 +1,12 @@
 {
-  "template_sync_hashes": ["e50e9335034f7787c8fbdb33a67f9ec1ae13a047"]
+  "template_sync_hashes": [
+    "e50e9335034f7787c8fbdb33a67f9ec1ae13a047",
+    "2e4cdac079954e9e6b6fd817379c9cbfd2291485"
+  ],
+  "compliance-ignores": [
+    {
+      "id": "foundation-pins-current",
+      "reason": "The local rust-template HEAD this sync diffed against is not published to the GitHub remote the foundation git dependency resolves from, so Cargo.lock/flake.lock cannot be advanced to it in this offline environment. Bump both pins once the template is pushed and crates.io is reachable."
+    }
+  ]
 }
