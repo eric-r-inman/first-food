@@ -7,6 +7,30 @@
     {
       "id": "foundation-pins-current",
       "reason": "The local rust-template HEAD this sync diffed against is not published to the GitHub remote the foundation git dependency resolves from, so Cargo.lock/flake.lock cannot be advanced to it in this offline environment. Bump both pins once the template is pushed and crates.io is reachable."
+    },
+    {
+      "id": "review-gate-settings",
+      "reason": "The per-turn template-compliance review gate is intentionally disabled to conserve tokens on this solo, unreleased project (see tasks.org). The hook script and agent remain in the repo so it can be re-enabled by restoring the Stop hook in .claude/settings.json."
+    },
+    {
+      "id": "review-gate-settings-wires-hook",
+      "reason": "Stop hook intentionally unwired; see review-gate-settings."
+    },
+    {
+      "id": "dependabot-config-present",
+      "reason": "Dependabot version updates intentionally disabled (dependabot.yml removed) to stop automated PR noise on this solo project; see tasks.org."
+    },
+    {
+      "id": "dependabot-config-version",
+      "reason": "Dependabot disabled; see dependabot-config-present."
+    },
+    {
+      "id": "dependabot-config-cargo-ecosystem",
+      "reason": "Dependabot disabled; see dependabot-config-present."
+    },
+    {
+      "id": "dependabot-config-github-actions-ecosystem",
+      "reason": "Dependabot disabled; see dependabot-config-present."
     }
   ]
 }

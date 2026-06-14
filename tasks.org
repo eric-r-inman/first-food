@@ -4,3 +4,25 @@
 The project's backlog.  Record plans and work items here as ~* TODO~ entries —
 see the "Capturing plans" guidance in =llms.org= — cross-linking related entries
 and marking finished work ~* DONE~.
+
+* DONE Trim template-workflow overkill for this solo project
+
+Disabled the token-heavy and noise-heavy parts of the rust-template workflow
+that do not earn their keep on a private, unreleased, solo game:
+
+- *Per-turn template-compliance review gate* — unwired the Stop hook in
+  =.claude/settings.json= (the =review-stop.sh= script and the
+  =template-compliance= agent stay in the repo).  This was the main Claude-token
+  sink: it spawned a reviewing subagent on every turn that touched code.
+- *Dependabot version updates* — removed =.github/dependabot.yml= to stop
+  automated dependency PRs.  The now-inert automerge workflow is left in place.
+- *Local =cargo-semver-checks=* — dropped from the flake dev shell; it is ABI
+  stability tooling for published libraries, and this project is not published.
+
+Kept: the Nix dev shell, =treefmt=, local tests, the structural compliance
+checker (=just compliance=, which is cheap and not per-turn), CI, the Elm
+frontend, and the server-crate stub.
+
+Each deviation is recorded as a =compliance-ignores= entry in
+=rust-template.json=.  Re-enable any one by reverting its change and removing
+the matching ignore.
