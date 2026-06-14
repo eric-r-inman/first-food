@@ -69,7 +69,7 @@ paletteDecoder =
 init : () -> ( Model, Cmd Msg )
 init _ =
     ( { terrains = [], propertyKeys = [], selected = 0, newProp = "", status = "loading palette…", pickerOpen = False, codepoint = "" }
-    , Http.get { url = "palette.json", expect = Http.expectJson GotPalette paletteDecoder }
+    , Http.get { url = "resources.json", expect = Http.expectJson GotPalette paletteDecoder }
     )
 
 
@@ -103,7 +103,7 @@ update msg model =
             ( { model | propertyKeys = keys, terrains = terrains, status = "ready" }, Cmd.none )
 
         GotPalette (Err _) ->
-            ( { model | status = "could not load palette.json" }, Cmd.none )
+            ( { model | status = "could not load resources.json" }, Cmd.none )
 
         Select i ->
             ( { model | selected = i }, Cmd.none )
@@ -322,7 +322,7 @@ listView model =
     div []
         [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "resources" ]
         , div [] (List.indexedMap (terrainRow model) model.terrains)
-        , div [ A.style "margin-top" "6px" ] [ plainButton AddTerrain "+ add terrain" ]
+        , div [ A.style "margin-top" "6px" ] [ plainButton AddTerrain "+ add resource" ]
         ]
 
 
@@ -349,7 +349,7 @@ detailView : Model -> Html Msg
 detailView model =
     case selectedTerrain model of
         Nothing ->
-            div [ A.style "opacity" "0.6" ] [ text "no terrain selected" ]
+            div [ A.style "opacity" "0.6" ] [ text "no resource selected" ]
 
         Just t ->
             div [ A.style "min-width" "260px" ]
