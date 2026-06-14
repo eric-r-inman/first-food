@@ -107,6 +107,16 @@ struct ResourceFile {
   resource: Vec<TerrainDef>,
 }
 
+/// The top-level shape of `buildings.toml`.  Buildings reuse the terrain
+/// definition shape and form a layer placed over the terrain.
+#[derive(Debug, Serialize, Deserialize)]
+struct BuildingFile {
+  #[serde(default)]
+  property_keys: Vec<String>,
+  #[serde(rename = "building", default)]
+  building: Vec<TerrainDef>,
+}
+
 #[derive(Debug, Error)]
 pub enum GameDataError {
   #[error("could not read archetypes file at {path}: {source}")]
@@ -146,6 +156,16 @@ pub enum GameDataError {
   },
   #[error("could not parse resources file at {path}: {source}")]
   ResourcesParse {
+    path: PathBuf,
+    source: toml::de::Error,
+  },
+  #[error("could not read buildings file at {path}: {source}")]
+  BuildingsRead {
+    path: PathBuf,
+    source: std::io::Error,
+  },
+  #[error("could not parse buildings file at {path}: {source}")]
+  BuildingsParse {
     path: PathBuf,
     source: toml::de::Error,
   },
@@ -304,6 +324,23 @@ pub fn load_resources(
     )?)
     .map_err(|source| GameDataError::ResourcesParse { path, source })?;
   Ok((file.property_keys, file.resource))
+}
+
+/// Load the building palette and its universal property keys from
+/// `buildings.toml` in `dir`.  Buildings are a layer placed over the terrain.
+pub fn load_buildings(
+  dir: &Path,
+) -> Result<(Vec<String>, Vec<TerrainDef>), GameDataError> {
+  let path = dir.join("buildings.toml");
+  let file =
+    toml::from_str::<BuildingFile>(&fs::read_to_string(&path).map_err(
+      |source| GameDataError::BuildingsRead {
+        path: path.clone(),
+        source,
+      },
+    )?)
+    .map_err(|source| GameDataError::BuildingsParse { path, source })?;
+  Ok((file.property_keys, file.building))
 }
 
 #[cfg(test)]

@@ -3,9 +3,10 @@ module Main exposing (main)
 {-| Browser map editor for the empire-builder game board.
 
 The editor renders a movable viewport over a potentially large ASCII map, so the
-DOM stays small no matter how big the map is. There are two layers: the base
-terrain and a resource layer placed over it. Terrain and resource palettes come
-from the server (palette.json, resources.json); maps are saved/loaded as JSON.
+DOM stays small no matter how big the map is. There are three layers stacked
+bottom to top: base terrain, a resource layer, and a building layer. Palettes
+come from the server (palette.json, resources.json, buildings.json); maps are
+saved/loaded as JSON carrying every layer.
 
 -}
 
@@ -26,7 +27,7 @@ import Task
 
 
 
--- TERRAIN / RESOURCE (same shape: a keyed, colored glyph)
+-- A keyed, colored glyph: terrain, resource, and building all share this shape.
 
 
 type alias Terrain =
@@ -139,17 +140,18 @@ type Tool
 type Layer
     = TerrainLayer
     | ResourceLayer
+    | BuildingLayer
 
 
-{-| No resource on a tile is stored as a space in the resource grid.
+{-| An empty overlay cell (no resource / no building) is stored as a space.
 -}
-noResource : Char
-noResource =
+empty : Char
+empty =
     ' '
 
 
 type alias Snapshot =
-    { terrain : MapData, resources : MapData }
+    { terrain : MapData, resources : MapData, buildings : MapData }
 
 
 type alias Model =
@@ -157,13 +159,17 @@ type alias Model =
     , byKey : Dict Char Terrain
     , resources : List Terrain
     , byResKey : Dict Char Terrain
+    , buildings : List Terrain
+    , byBldKey : Dict Char Terrain
     , map : MapData
     , resourceMap : MapData
+    , buildingMap : MapData
     , name : String
     , tool : Tool
     , layer : Layer
     , active : Char
     , activeResource : Char
+    , activeBuilding : Char
     , vx : Int
     , vy : Int
     , cursor : Maybe ( Int, Int )
@@ -206,13 +212,17 @@ init _ =
       , byKey = Dict.empty
       , resources = []
       , byResKey = Dict.empty
+      , buildings = []
+      , byBldKey = Dict.empty
       , map = makeMap 64 40 defaultFill
-      , resourceMap = makeMap 64 40 noResource
+      , resourceMap = makeMap 64 40 empty
+      , buildingMap = makeMap 64 40 empty
       , name = "untitled"
       , tool = Paint
       , layer = TerrainLayer
       , active = defaultFill
-      , activeResource = noResource
+      , activeResource = empty
+      , activeBuilding = empty
       , vx = 0
       , vy = 0
       , cursor = Nothing
@@ -226,6 +236,7 @@ init _ =
     , Cmd.batch
         [ Http.get { url = "palette.json", expect = Http.expectJson GotPalette (D.field "terrain" (D.list terrainDecoder)) }
         , Http.get { url = "resources.json", expect = Http.expectJson GotResources (D.field "resources" (D.list terrainDecoder)) }
+        , Http.get { url = "buildings.json", expect = Http.expectJson GotBuildings (D.field "buildings" (D.list terrainDecoder)) }
         ]
     )
 
@@ -237,8 +248,10 @@ init _ =
 type Msg
     = GotPalette (Result Http.Error (List Terrain))
     | GotResources (Result Http.Error (List Terrain))
+    | GotBuildings (Result Http.Error (List Terrain))
     | SelectTerrain Char
     | SelectResource Char
+    | SelectBuilding Char
     | SetLayer Layer
     | SelectTool Tool
     | CellMouseDown Int Int
@@ -256,13 +269,18 @@ type Msg
     | FileLoaded String
 
 
+byKeyOf : List Terrain -> Dict Char Terrain
+byKeyOf list =
+    list |> List.map (\t -> ( t.key, t )) |> Dict.fromList
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         GotPalette (Ok terrains) ->
             let
                 byKey =
-                    terrains |> List.map (\t -> ( t.key, t )) |> Dict.fromList
+                    byKeyOf terrains
 
                 active =
                     if Dict.member model.active byKey then
@@ -277,23 +295,25 @@ update msg model =
             ( { model | status = "could not load palette.json" }, Cmd.none )
 
         GotResources (Ok resources) ->
-            let
-                byResKey =
-                    resources |> List.map (\t -> ( t.key, t )) |> Dict.fromList
-
-                activeResource =
-                    List.head resources |> Maybe.map .key |> Maybe.withDefault noResource
-            in
-            ( { model | resources = resources, byResKey = byResKey, activeResource = activeResource }, Cmd.none )
+            ( { model | resources = resources, byResKey = byKeyOf resources, activeResource = firstKey resources }, Cmd.none )
 
         GotResources (Err _) ->
             ( { model | status = "could not load resources.json" }, Cmd.none )
+
+        GotBuildings (Ok buildings) ->
+            ( { model | buildings = buildings, byBldKey = byKeyOf buildings, activeBuilding = firstKey buildings }, Cmd.none )
+
+        GotBuildings (Err _) ->
+            ( { model | status = "could not load buildings.json" }, Cmd.none )
 
         SelectTerrain k ->
             ( { model | active = k, layer = TerrainLayer }, Cmd.none )
 
         SelectResource k ->
             ( { model | activeResource = k, layer = ResourceLayer }, Cmd.none )
+
+        SelectBuilding k ->
+            ( { model | activeBuilding = k, layer = BuildingLayer }, Cmd.none )
 
         SetLayer layer ->
             ( { model | layer = layer }, Cmd.none )
@@ -355,7 +375,7 @@ update msg model =
                 pushed =
                     pushHistory model
             in
-            ( { pushed | map = makeMap w h (grasslandKey model), resourceMap = makeMap w h noResource, vx = 0, vy = 0, status = "new map" }, Cmd.none )
+            ( { pushed | map = makeMap w h (grasslandKey model), resourceMap = makeMap w h empty, buildingMap = makeMap w h empty, vx = 0, vy = 0, status = "new map" }, Cmd.none )
 
         Undo ->
             case model.history of
@@ -386,21 +406,26 @@ update msg model =
 
         FileLoaded contents ->
             case D.decodeString mapDecoder contents of
-                Ok ( name, terrainMap, resourceMap ) ->
-                    ( { model | name = name, map = terrainMap, resourceMap = resourceMap, history = [], future = [], vx = 0, vy = 0, status = "loaded " ++ name }, Cmd.none )
+                Ok loaded ->
+                    ( { model | name = loaded.name, map = loaded.terrain, resourceMap = loaded.resources, buildingMap = loaded.buildings, history = [], future = [], vx = 0, vy = 0, status = "loaded " ++ loaded.name }, Cmd.none )
 
                 Err _ ->
                     ( { model | status = "could not parse that map file" }, Cmd.none )
 
 
+firstKey : List Terrain -> Char
+firstKey list =
+    List.head list |> Maybe.map .key |> Maybe.withDefault empty
+
+
 current : Model -> Snapshot
 current model =
-    { terrain = model.map, resources = model.resourceMap }
+    { terrain = model.map, resources = model.resourceMap, buildings = model.buildingMap }
 
 
 restore : Snapshot -> Model -> Model
 restore snap model =
-    { model | map = snap.terrain, resourceMap = snap.resources }
+    { model | map = snap.terrain, resourceMap = snap.resources, buildingMap = snap.buildings }
 
 
 pushHistory : Model -> Model
@@ -417,6 +442,9 @@ activeGrid model =
         ResourceLayer ->
             model.resourceMap
 
+        BuildingLayer ->
+            model.buildingMap
+
 
 setActiveGrid : MapData -> Model -> Model
 setActiveGrid grid model =
@@ -427,6 +455,9 @@ setActiveGrid grid model =
         ResourceLayer ->
             { model | resourceMap = grid }
 
+        BuildingLayer ->
+            { model | buildingMap = grid }
+
 
 activeKey : Model -> Char
 activeKey model =
@@ -436,6 +467,9 @@ activeKey model =
 
         ResourceLayer ->
             model.activeResource
+
+        BuildingLayer ->
+            model.activeBuilding
 
 
 eyedrop : Int -> Int -> Model -> Model
@@ -450,6 +484,9 @@ eyedrop x y model =
 
         ResourceLayer ->
             { model | activeResource = picked }
+
+        BuildingLayer ->
+            { model | activeBuilding = picked }
 
 
 dropExtension : String -> String
@@ -475,28 +512,40 @@ encodeMap model =
             , ( "height", E.int model.map.height )
             , ( "rows", E.list E.string (rowsToStrings model.map) )
             , ( "resources", E.list E.string (rowsToStrings model.resourceMap) )
+            , ( "buildings", E.list E.string (rowsToStrings model.buildingMap) )
             ]
 
 
-mapDecoder : D.Decoder ( String, MapData, MapData )
-mapDecoder =
-    D.map5
-        (\name w h rows mres ->
-            ( name
-            , { width = w, height = h, rows = rowsFromStrings rows }
-            , case mres of
-                Just rr ->
-                    { width = w, height = h, rows = rowsFromStrings rr }
+type alias LoadedMap =
+    { name : String, terrain : MapData, resources : MapData, buildings : MapData }
 
-                Nothing ->
-                    makeMap w h noResource
-            )
+
+mapDecoder : D.Decoder LoadedMap
+mapDecoder =
+    D.map6
+        (\name w h rows mres mbld ->
+            { name = name
+            , terrain = { width = w, height = h, rows = rowsFromStrings rows }
+            , resources = overlayGrid w h mres
+            , buildings = overlayGrid w h mbld
+            }
         )
         (D.field "name" D.string)
         (D.field "width" D.int)
         (D.field "height" D.int)
         (D.field "rows" (D.list D.string))
         (D.maybe (D.field "resources" (D.list D.string)))
+        (D.maybe (D.field "buildings" (D.list D.string)))
+
+
+overlayGrid : Int -> Int -> Maybe (List String) -> MapData
+overlayGrid w h rows =
+    case rows of
+        Just rr ->
+            { width = w, height = h, rows = rowsFromStrings rr }
+
+        Nothing ->
+            makeMap w h empty
 
 
 
@@ -523,6 +572,7 @@ layerView model =
         , div [ A.style "display" "flex", A.style "gap" "4px" ]
             [ layerButton model TerrainLayer "terrain"
             , layerButton model ResourceLayer "resources"
+            , layerButton model BuildingLayer "buildings"
             ]
         ]
 
@@ -544,18 +594,21 @@ paletteView : Model -> Html Msg
 paletteView model =
     case model.layer of
         TerrainLayer ->
-            div []
-                [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "terrain" ]
-                , div [ A.style "display" "flex", A.style "flex-wrap" "wrap", A.style "max-width" "360px", A.style "gap" "4px" ]
-                    (List.map (paletteButton SelectTerrain model.active) model.palette)
-                ]
+            paletteSection "terrain" (List.map (paletteButton SelectTerrain model.active) model.palette)
 
         ResourceLayer ->
-            div []
-                [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "resources" ]
-                , div [ A.style "display" "flex", A.style "flex-wrap" "wrap", A.style "max-width" "360px", A.style "gap" "4px" ]
-                    (noneButton model.activeResource :: List.map (paletteButton SelectResource model.activeResource) model.resources)
-                ]
+            paletteSection "resources" (noneButton SelectResource model.activeResource :: List.map (paletteButton SelectResource model.activeResource) model.resources)
+
+        BuildingLayer ->
+            paletteSection "buildings" (noneButton SelectBuilding model.activeBuilding :: List.map (paletteButton SelectBuilding model.activeBuilding) model.buildings)
+
+
+paletteSection : String -> List (Html Msg) -> Html Msg
+paletteSection label buttons =
+    div []
+        [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text label ]
+        , div [ A.style "display" "flex", A.style "flex-wrap" "wrap", A.style "max-width" "360px", A.style "gap" "4px" ] buttons
+        ]
 
 
 paletteButton : (Char -> Msg) -> Char -> Terrain -> Html Msg
@@ -572,11 +625,11 @@ paletteButton toMsg activeK t =
         [ text (t.glyph ++ " " ++ t.id) ]
 
 
-noneButton : Char -> Html Msg
-noneButton activeK =
+noneButton : (Char -> Msg) -> Char -> Html Msg
+noneButton toMsg activeK =
     button
-        [ onClick (SelectResource noResource)
-        , A.style "background" (highlightIf (activeK == noResource))
+        [ onClick (toMsg empty)
+        , A.style "background" (highlightIf (activeK == empty))
         , A.style "color" "#aaa"
         , A.style "border" "1px solid #333"
         , A.style "padding" "4px 6px"
@@ -599,6 +652,7 @@ toolsView model =
             , plainButton LoadRequested "load"
             , editorLink "/terrain.html" "edit terrain ↗"
             , editorLink "/resources.html" "edit resources ↗"
+            , editorLink "/buildings.html" "edit buildings ↗"
             ]
         , div [ A.style "margin-top" "8px", A.style "display" "flex", A.style "gap" "4px", A.style "align-items" "center" ]
             [ text "new "
@@ -709,32 +763,8 @@ rowView model y =
 cellView : Model -> Int -> Int -> Html Msg
 cellView model x y =
     let
-        resourceCh =
-            getCell x y model.resourceMap |> Maybe.withDefault noResource
-
-        resource =
-            if resourceCh == noResource then
-                Nothing
-
-            else
-                Dict.get resourceCh model.byResKey
-
         ( glyph, color ) =
-            case resource of
-                Just r ->
-                    ( r.glyph, cssColor r.color )
-
-                Nothing ->
-                    let
-                        terrainCh =
-                            getCell x y model.map |> Maybe.withDefault ' '
-                    in
-                    case Dict.get terrainCh model.byKey of
-                        Just t ->
-                            ( t.glyph, cssColor t.color )
-
-                        Nothing ->
-                            ( String.fromChar terrainCh, "#888" )
+            topCell model x y
 
         highlight =
             model.cursor == Just ( x, y )
@@ -756,6 +786,45 @@ cellView model x y =
         [ text glyph ]
 
 
+{-| The glyph drawn at a tile: building over resource over terrain.
+-}
+topCell : Model -> Int -> Int -> ( String, String )
+topCell model x y =
+    case overlayAt x y model.buildingMap model.byBldKey of
+        Just gc ->
+            gc
+
+        Nothing ->
+            case overlayAt x y model.resourceMap model.byResKey of
+                Just gc ->
+                    gc
+
+                Nothing ->
+                    let
+                        terrainCh =
+                            getCell x y model.map |> Maybe.withDefault ' '
+                    in
+                    case Dict.get terrainCh model.byKey of
+                        Just t ->
+                            ( t.glyph, cssColor t.color )
+
+                        Nothing ->
+                            ( String.fromChar terrainCh, "#888" )
+
+
+overlayAt : Int -> Int -> MapData -> Dict Char Terrain -> Maybe ( String, String )
+overlayAt x y grid dict =
+    let
+        ch =
+            getCell x y grid |> Maybe.withDefault empty
+    in
+    if ch == empty then
+        Nothing
+
+    else
+        Dict.get ch dict |> Maybe.map (\t -> ( t.glyph, cssColor t.color ))
+
+
 statusView : Model -> Html Msg
 statusView model =
     let
@@ -773,7 +842,10 @@ statusView model =
                     "terrain:" ++ nameOf model.active model.byKey
 
                 ResourceLayer ->
-                    "resource:" ++ resourceNameOf model.activeResource model.byResKey
+                    "resource:" ++ overlayName model.activeResource model.byResKey
+
+                BuildingLayer ->
+                    "building:" ++ overlayName model.activeBuilding model.byBldKey
     in
     div [ A.style "margin-top" "8px", A.style "opacity" "0.85" ]
         [ text
@@ -793,9 +865,9 @@ nameOf k dict =
     Dict.get k dict |> Maybe.map .id |> Maybe.withDefault (String.fromChar k)
 
 
-resourceNameOf : Char -> Dict Char Terrain -> String
-resourceNameOf k dict =
-    if k == noResource then
+overlayName : Char -> Dict Char Terrain -> String
+overlayName k dict =
+    if k == empty then
         "none"
 
     else

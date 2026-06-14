@@ -56,6 +56,8 @@ pub enum Commands {
   Palette,
   /// Print the resource palette as JSON (consumed by the browser editors).
   Resources,
+  /// Print the building palette as JSON (consumed by the browser editors).
+  Buildings,
 }
 
 #[derive(Debug, Clone, MergeConfig)]

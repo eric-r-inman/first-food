@@ -16,10 +16,12 @@ frontend/elm-stuff/
 frontend/public/elm.js
 frontend/public/terrain.js
 frontend/public/resources.js
+frontend/public/buildings.js
 
 # Palettes generated for the map editor by `just editor`.
 frontend/public/palette.json
 frontend/public/resources.json
+frontend/public/buildings.json
 
 # Local game save written by `just dev`; generated, not project source.
 /world.json

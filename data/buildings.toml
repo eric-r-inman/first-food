@@ -1,0 +1,34 @@
+# Buildings.  A building is placed as a layer over the terrain (above the
+# resource layer).  It reuses the terrain shape: a `key` stored per tile, a
+# display `glyph` and `color`, and optional `props`.  These are placeholders;
+# rename and retheme them in the building editor.
+
+[[building]]
+id = "Building A"
+key = "1"
+glyph = "⌂"
+color = "bright_white"
+
+[[building]]
+id = "Building B"
+key = "2"
+glyph = "▣"
+color = "white"
+
+[[building]]
+id = "Building C"
+key = "3"
+glyph = "▤"
+color = "bright_yellow"
+
+[[building]]
+id = "Building D"
+key = "4"
+glyph = "▥"
+color = "bright_cyan"
+
+[[building]]
+id = "Building E"
+key = "5"
+glyph = "◫"
+color = "bright_magenta"

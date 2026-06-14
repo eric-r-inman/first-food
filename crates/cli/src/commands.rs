@@ -69,6 +69,15 @@ pub fn run(config: Config) -> Result<ExitCode, AppError> {
       });
       println!("{}", serde_json::to_string_pretty(&palette)?);
     }
+    Commands::Buildings => {
+      let (property_keys, buildings) =
+        first_food_lib::load_buildings(&config.data_dir)?;
+      let palette = serde_json::json!({
+        "property_keys": property_keys,
+        "buildings": buildings,
+      });
+      println!("{}", serde_json::to_string_pretty(&palette)?);
+    }
   }
   Ok(ExitCode::SUCCESS)
 }
