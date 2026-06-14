@@ -117,6 +117,16 @@ struct BuildingFile {
   building: Vec<TerrainDef>,
 }
 
+/// The top-level shape of `units.toml`.  Units reuse the terrain definition
+/// shape and form a layer placed over the terrain.
+#[derive(Debug, Serialize, Deserialize)]
+struct UnitFile {
+  #[serde(default)]
+  property_keys: Vec<String>,
+  #[serde(rename = "unit", default)]
+  unit: Vec<TerrainDef>,
+}
+
 #[derive(Debug, Error)]
 pub enum GameDataError {
   #[error("could not read archetypes file at {path}: {source}")]
@@ -166,6 +176,16 @@ pub enum GameDataError {
   },
   #[error("could not parse buildings file at {path}: {source}")]
   BuildingsParse {
+    path: PathBuf,
+    source: toml::de::Error,
+  },
+  #[error("could not read units file at {path}: {source}")]
+  UnitsRead {
+    path: PathBuf,
+    source: std::io::Error,
+  },
+  #[error("could not parse units file at {path}: {source}")]
+  UnitsParse {
     path: PathBuf,
     source: toml::de::Error,
   },
@@ -341,6 +361,22 @@ pub fn load_buildings(
     )?)
     .map_err(|source| GameDataError::BuildingsParse { path, source })?;
   Ok((file.property_keys, file.building))
+}
+
+/// Load the unit palette and its universal property keys from `units.toml` in
+/// `dir`.  Units are a layer placed over the terrain.
+pub fn load_units(
+  dir: &Path,
+) -> Result<(Vec<String>, Vec<TerrainDef>), GameDataError> {
+  let path = dir.join("units.toml");
+  let file = toml::from_str::<UnitFile>(&fs::read_to_string(&path).map_err(
+    |source| GameDataError::UnitsRead {
+      path: path.clone(),
+      source,
+    },
+  )?)
+  .map_err(|source| GameDataError::UnitsParse { path, source })?;
+  Ok((file.property_keys, file.unit))
 }
 
 #[cfg(test)]

@@ -4,8 +4,8 @@ pub mod save;
 pub mod world;
 
 pub use data::{
-  load_buildings, load_resources, ArchetypeDef, GameData, GameDataError,
-  MapSpec, Scenario, ScenarioIndividual, TerrainDef,
+  load_buildings, load_resources, load_units, ArchetypeDef, GameData,
+  GameDataError, MapSpec, Scenario, ScenarioIndividual, TerrainDef,
 };
 pub use editor::{EditorError, MapEditor};
 pub use save::SaveError;

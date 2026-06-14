@@ -141,6 +141,7 @@ type Layer
     = TerrainLayer
     | ResourceLayer
     | BuildingLayer
+    | UnitLayer
 
 
 {-| An empty overlay cell (no resource / no building) is stored as a space.
@@ -151,7 +152,7 @@ empty =
 
 
 type alias Snapshot =
-    { terrain : MapData, resources : MapData, buildings : MapData }
+    { terrain : MapData, resources : MapData, buildings : MapData, units : MapData }
 
 
 type alias Model =
@@ -161,15 +162,19 @@ type alias Model =
     , byResKey : Dict Char Terrain
     , buildings : List Terrain
     , byBldKey : Dict Char Terrain
+    , units : List Terrain
+    , byUnitKey : Dict Char Terrain
     , map : MapData
     , resourceMap : MapData
     , buildingMap : MapData
+    , unitMap : MapData
     , name : String
     , tool : Tool
     , layer : Layer
     , active : Char
     , activeResource : Char
     , activeBuilding : Char
+    , activeUnit : Char
     , vx : Int
     , vy : Int
     , cursor : Maybe ( Int, Int )
@@ -214,15 +219,19 @@ init _ =
       , byResKey = Dict.empty
       , buildings = []
       , byBldKey = Dict.empty
+      , units = []
+      , byUnitKey = Dict.empty
       , map = makeMap 64 40 defaultFill
       , resourceMap = makeMap 64 40 empty
       , buildingMap = makeMap 64 40 empty
+      , unitMap = makeMap 64 40 empty
       , name = "untitled"
       , tool = Paint
       , layer = TerrainLayer
       , active = defaultFill
       , activeResource = empty
       , activeBuilding = empty
+      , activeUnit = empty
       , vx = 0
       , vy = 0
       , cursor = Nothing
@@ -237,6 +246,7 @@ init _ =
         [ Http.get { url = "palette.json", expect = Http.expectJson GotPalette (D.field "terrain" (D.list terrainDecoder)) }
         , Http.get { url = "resources.json", expect = Http.expectJson GotResources (D.field "resources" (D.list terrainDecoder)) }
         , Http.get { url = "buildings.json", expect = Http.expectJson GotBuildings (D.field "buildings" (D.list terrainDecoder)) }
+        , Http.get { url = "units.json", expect = Http.expectJson GotUnits (D.field "units" (D.list terrainDecoder)) }
         ]
     )
 
@@ -249,9 +259,11 @@ type Msg
     = GotPalette (Result Http.Error (List Terrain))
     | GotResources (Result Http.Error (List Terrain))
     | GotBuildings (Result Http.Error (List Terrain))
+    | GotUnits (Result Http.Error (List Terrain))
     | SelectTerrain Char
     | SelectResource Char
     | SelectBuilding Char
+    | SelectUnit Char
     | SetLayer Layer
     | SelectTool Tool
     | CellMouseDown Int Int
@@ -306,6 +318,12 @@ update msg model =
         GotBuildings (Err _) ->
             ( { model | status = "could not load buildings.json" }, Cmd.none )
 
+        GotUnits (Ok units) ->
+            ( { model | units = units, byUnitKey = byKeyOf units, activeUnit = firstKey units }, Cmd.none )
+
+        GotUnits (Err _) ->
+            ( { model | status = "could not load units.json" }, Cmd.none )
+
         SelectTerrain k ->
             ( { model | active = k, layer = TerrainLayer }, Cmd.none )
 
@@ -314,6 +332,9 @@ update msg model =
 
         SelectBuilding k ->
             ( { model | activeBuilding = k, layer = BuildingLayer }, Cmd.none )
+
+        SelectUnit k ->
+            ( { model | activeUnit = k, layer = UnitLayer }, Cmd.none )
 
         SetLayer layer ->
             ( { model | layer = layer }, Cmd.none )
@@ -375,7 +396,7 @@ update msg model =
                 pushed =
                     pushHistory model
             in
-            ( { pushed | map = makeMap w h (grasslandKey model), resourceMap = makeMap w h empty, buildingMap = makeMap w h empty, vx = 0, vy = 0, status = "new map" }, Cmd.none )
+            ( { pushed | map = makeMap w h (grasslandKey model), resourceMap = makeMap w h empty, buildingMap = makeMap w h empty, unitMap = makeMap w h empty, vx = 0, vy = 0, status = "new map" }, Cmd.none )
 
         Undo ->
             case model.history of
@@ -407,7 +428,7 @@ update msg model =
         FileLoaded contents ->
             case D.decodeString mapDecoder contents of
                 Ok loaded ->
-                    ( { model | name = loaded.name, map = loaded.terrain, resourceMap = loaded.resources, buildingMap = loaded.buildings, history = [], future = [], vx = 0, vy = 0, status = "loaded " ++ loaded.name }, Cmd.none )
+                    ( { model | name = loaded.name, map = loaded.terrain, resourceMap = loaded.resources, buildingMap = loaded.buildings, unitMap = loaded.units, history = [], future = [], vx = 0, vy = 0, status = "loaded " ++ loaded.name }, Cmd.none )
 
                 Err _ ->
                     ( { model | status = "could not parse that map file" }, Cmd.none )
@@ -420,12 +441,12 @@ firstKey list =
 
 current : Model -> Snapshot
 current model =
-    { terrain = model.map, resources = model.resourceMap, buildings = model.buildingMap }
+    { terrain = model.map, resources = model.resourceMap, buildings = model.buildingMap, units = model.unitMap }
 
 
 restore : Snapshot -> Model -> Model
 restore snap model =
-    { model | map = snap.terrain, resourceMap = snap.resources, buildingMap = snap.buildings }
+    { model | map = snap.terrain, resourceMap = snap.resources, buildingMap = snap.buildings, unitMap = snap.units }
 
 
 pushHistory : Model -> Model
@@ -445,6 +466,9 @@ activeGrid model =
         BuildingLayer ->
             model.buildingMap
 
+        UnitLayer ->
+            model.unitMap
+
 
 setActiveGrid : MapData -> Model -> Model
 setActiveGrid grid model =
@@ -458,6 +482,9 @@ setActiveGrid grid model =
         BuildingLayer ->
             { model | buildingMap = grid }
 
+        UnitLayer ->
+            { model | unitMap = grid }
+
 
 activeKey : Model -> Char
 activeKey model =
@@ -470,6 +497,9 @@ activeKey model =
 
         BuildingLayer ->
             model.activeBuilding
+
+        UnitLayer ->
+            model.activeUnit
 
 
 eyedrop : Int -> Int -> Model -> Model
@@ -487,6 +517,9 @@ eyedrop x y model =
 
         BuildingLayer ->
             { model | activeBuilding = picked }
+
+        UnitLayer ->
+            { model | activeUnit = picked }
 
 
 dropExtension : String -> String
@@ -513,21 +546,23 @@ encodeMap model =
             , ( "rows", E.list E.string (rowsToStrings model.map) )
             , ( "resources", E.list E.string (rowsToStrings model.resourceMap) )
             , ( "buildings", E.list E.string (rowsToStrings model.buildingMap) )
+            , ( "units", E.list E.string (rowsToStrings model.unitMap) )
             ]
 
 
 type alias LoadedMap =
-    { name : String, terrain : MapData, resources : MapData, buildings : MapData }
+    { name : String, terrain : MapData, resources : MapData, buildings : MapData, units : MapData }
 
 
 mapDecoder : D.Decoder LoadedMap
 mapDecoder =
-    D.map6
-        (\name w h rows mres mbld ->
+    D.map7
+        (\name w h rows mres mbld munits ->
             { name = name
             , terrain = { width = w, height = h, rows = rowsFromStrings rows }
             , resources = overlayGrid w h mres
             , buildings = overlayGrid w h mbld
+            , units = overlayGrid w h munits
             }
         )
         (D.field "name" D.string)
@@ -536,6 +571,7 @@ mapDecoder =
         (D.field "rows" (D.list D.string))
         (D.maybe (D.field "resources" (D.list D.string)))
         (D.maybe (D.field "buildings" (D.list D.string)))
+        (D.maybe (D.field "units" (D.list D.string)))
 
 
 overlayGrid : Int -> Int -> Maybe (List String) -> MapData
@@ -573,6 +609,7 @@ layerView model =
             [ layerButton model TerrainLayer "terrain"
             , layerButton model ResourceLayer "resources"
             , layerButton model BuildingLayer "buildings"
+            , layerButton model UnitLayer "units"
             ]
         ]
 
@@ -601,6 +638,9 @@ paletteView model =
 
         BuildingLayer ->
             paletteSection "buildings" (noneButton SelectBuilding model.activeBuilding :: List.map (paletteButton SelectBuilding model.activeBuilding) model.buildings)
+
+        UnitLayer ->
+            paletteSection "units" (noneButton SelectUnit model.activeUnit :: List.map (paletteButton SelectUnit model.activeUnit) model.units)
 
 
 paletteSection : String -> List (Html Msg) -> Html Msg
@@ -653,6 +693,7 @@ toolsView model =
             , editorLink "/terrain.html" "edit terrain ↗"
             , editorLink "/resources.html" "edit resources ↗"
             , editorLink "/buildings.html" "edit buildings ↗"
+            , editorLink "/units.html" "edit units ↗"
             ]
         , div [ A.style "margin-top" "8px", A.style "display" "flex", A.style "gap" "4px", A.style "align-items" "center" ]
             [ text "new "
@@ -786,30 +827,44 @@ cellView model x y =
         [ text glyph ]
 
 
-{-| The glyph drawn at a tile: building over resource over terrain.
+firstJust : List (Maybe a) -> Maybe a
+firstJust list =
+    case list of
+        [] ->
+            Nothing
+
+        (Just v) :: _ ->
+            Just v
+
+        Nothing :: rest ->
+            firstJust rest
+
+
+{-| The glyph drawn at a tile: unit over building over resource over terrain.
 -}
 topCell : Model -> Int -> Int -> ( String, String )
 topCell model x y =
-    case overlayAt x y model.buildingMap model.byBldKey of
+    case
+        firstJust
+            [ overlayAt x y model.unitMap model.byUnitKey
+            , overlayAt x y model.buildingMap model.byBldKey
+            , overlayAt x y model.resourceMap model.byResKey
+            ]
+    of
         Just gc ->
             gc
 
         Nothing ->
-            case overlayAt x y model.resourceMap model.byResKey of
-                Just gc ->
-                    gc
+            let
+                terrainCh =
+                    getCell x y model.map |> Maybe.withDefault ' '
+            in
+            case Dict.get terrainCh model.byKey of
+                Just t ->
+                    ( t.glyph, cssColor t.color )
 
                 Nothing ->
-                    let
-                        terrainCh =
-                            getCell x y model.map |> Maybe.withDefault ' '
-                    in
-                    case Dict.get terrainCh model.byKey of
-                        Just t ->
-                            ( t.glyph, cssColor t.color )
-
-                        Nothing ->
-                            ( String.fromChar terrainCh, "#888" )
+                    ( String.fromChar terrainCh, "#888" )
 
 
 overlayAt : Int -> Int -> MapData -> Dict Char Terrain -> Maybe ( String, String )
@@ -846,6 +901,9 @@ statusView model =
 
                 BuildingLayer ->
                     "building:" ++ overlayName model.activeBuilding model.byBldKey
+
+                UnitLayer ->
+                    "unit:" ++ overlayName model.activeUnit model.byUnitKey
     in
     div [ A.style "margin-top" "8px", A.style "opacity" "0.85" ]
         [ text

@@ -1,0 +1,34 @@
+# Units.  A unit (e.g. a combat unit) is placed as a layer over the terrain,
+# above the building layer.  It reuses the terrain shape: a `key` stored per
+# tile, a display `glyph` and `color`, and optional `props`.  Placeholders;
+# rename and retheme them in the unit editor.
+
+[[unit]]
+id = "Unit A"
+key = "u"
+glyph = "♟"
+color = "bright_red"
+
+[[unit]]
+id = "Unit B"
+key = "v"
+glyph = "♞"
+color = "bright_blue"
+
+[[unit]]
+id = "Unit C"
+key = "x"
+glyph = "♝"
+color = "bright_green"
+
+[[unit]]
+id = "Unit D"
+key = "y"
+glyph = "♜"
+color = "bright_yellow"
+
+[[unit]]
+id = "Unit E"
+key = "z"
+glyph = "♛"
+color = "bright_magenta"
