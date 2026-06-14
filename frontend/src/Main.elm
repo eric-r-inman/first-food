@@ -2,11 +2,11 @@ module Main exposing (main)
 
 {-| Browser map editor for the empire-builder game board.
 
-The editor renders a movable viewport over a potentially large ASCII map, so the
-DOM stays small no matter how big the map is. There are three layers stacked
-bottom to top: base terrain, a resource layer, and a building layer. Palettes
-come from the server (palette.json, resources.json, buildings.json); maps are
-saved/loaded as JSON carrying every layer.
+The board is a base terrain grid plus a stack of overlay layers (resources,
+landmarks, buildings, units). The overlays are data-driven: a new layer is one
+entry in `overlayTitles` (plus its data file, CLI feed, and editor page) — no
+structural change here. The editor renders a movable viewport so the DOM stays
+small at any map size, and maps save/load every layer as JSON.
 
 -}
 
@@ -27,7 +27,7 @@ import Task
 
 
 
--- A keyed, colored glyph: terrain, resource, and building all share this shape.
+-- A keyed, colored glyph: terrain and every overlay share this shape.
 
 
 type alias Terrain =
@@ -128,6 +128,68 @@ rowsToStrings m =
 
 
 
+-- OVERLAYS
+
+
+{-| An empty overlay cell (nothing placed) is stored as a space.
+-}
+empty : Char
+empty =
+    ' '
+
+
+{-| The overlay layers, ordered bottom to top. Adding a layer is a matter of
+adding its title here (and shipping its data file, CLI feed, and editor page).
+-}
+overlayTitles : List String
+overlayTitles =
+    [ "resources", "landmarks", "buildings", "units" ]
+
+
+type alias Overlay =
+    { title : String
+    , url : String
+    , field : String
+    , editorHref : String
+    , palette : List Terrain
+    , byKey : Dict Char Terrain
+    , grid : MapData
+    , active : Char
+    }
+
+
+newOverlay : String -> Overlay
+newOverlay title =
+    { title = title
+    , url = title ++ ".json"
+    , field = title
+    , editorHref = "/" ++ title ++ ".html"
+    , palette = []
+    , byKey = Dict.empty
+    , grid = makeMap 64 40 empty
+    , active = empty
+    }
+
+
+getOverlay : Int -> List Overlay -> Maybe Overlay
+getOverlay i overlays =
+    List.drop i overlays |> List.head
+
+
+updateOverlay : Int -> (Overlay -> Overlay) -> List Overlay -> List Overlay
+updateOverlay i f overlays =
+    List.indexedMap
+        (\j o ->
+            if i == j then
+                f o
+
+            else
+                o
+        )
+        overlays
+
+
+
 -- MODEL
 
 
@@ -139,47 +201,22 @@ type Tool
 
 type Layer
     = TerrainLayer
-    | ResourceLayer
-    | BuildingLayer
-    | UnitLayer
-    | LandmarkLayer
-
-
-{-| An empty overlay cell (no resource / no building) is stored as a space.
--}
-empty : Char
-empty =
-    ' '
+    | OverlayLayer Int
 
 
 type alias Snapshot =
-    { terrain : MapData, resources : MapData, buildings : MapData, units : MapData, landmarks : MapData }
+    { terrain : MapData, overlays : List MapData }
 
 
 type alias Model =
     { palette : List Terrain
     , byKey : Dict Char Terrain
-    , resources : List Terrain
-    , byResKey : Dict Char Terrain
-    , buildings : List Terrain
-    , byBldKey : Dict Char Terrain
-    , units : List Terrain
-    , byUnitKey : Dict Char Terrain
-    , landmarks : List Terrain
-    , byLmkKey : Dict Char Terrain
     , map : MapData
-    , resourceMap : MapData
-    , buildingMap : MapData
-    , unitMap : MapData
-    , landmarkMap : MapData
+    , active : Char
+    , overlays : List Overlay
     , name : String
     , tool : Tool
     , layer : Layer
-    , active : Char
-    , activeResource : Char
-    , activeBuilding : Char
-    , activeUnit : Char
-    , activeLandmark : Char
     , vx : Int
     , vy : Int
     , cursor : Maybe ( Int, Int )
@@ -218,29 +255,18 @@ grasslandKey model =
 
 init : () -> ( Model, Cmd Msg )
 init _ =
+    let
+        overlays =
+            List.map newOverlay overlayTitles
+    in
     ( { palette = []
       , byKey = Dict.empty
-      , resources = []
-      , byResKey = Dict.empty
-      , buildings = []
-      , byBldKey = Dict.empty
-      , units = []
-      , byUnitKey = Dict.empty
-      , landmarks = []
-      , byLmkKey = Dict.empty
       , map = makeMap 64 40 defaultFill
-      , resourceMap = makeMap 64 40 empty
-      , buildingMap = makeMap 64 40 empty
-      , unitMap = makeMap 64 40 empty
-      , landmarkMap = makeMap 64 40 empty
+      , active = defaultFill
+      , overlays = overlays
       , name = "untitled"
       , tool = Paint
       , layer = TerrainLayer
-      , active = defaultFill
-      , activeResource = empty
-      , activeBuilding = empty
-      , activeUnit = empty
-      , activeLandmark = empty
       , vx = 0
       , vy = 0
       , cursor = Nothing
@@ -252,12 +278,11 @@ init _ =
       , painting = False
       }
     , Cmd.batch
-        [ Http.get { url = "palette.json", expect = Http.expectJson GotPalette (D.field "terrain" (D.list terrainDecoder)) }
-        , Http.get { url = "resources.json", expect = Http.expectJson GotResources (D.field "resources" (D.list terrainDecoder)) }
-        , Http.get { url = "buildings.json", expect = Http.expectJson GotBuildings (D.field "buildings" (D.list terrainDecoder)) }
-        , Http.get { url = "units.json", expect = Http.expectJson GotUnits (D.field "units" (D.list terrainDecoder)) }
-        , Http.get { url = "landmarks.json", expect = Http.expectJson GotLandmarks (D.field "landmarks" (D.list terrainDecoder)) }
-        ]
+        (Http.get { url = "palette.json", expect = Http.expectJson GotPalette (D.field "terrain" (D.list terrainDecoder)) }
+            :: List.indexedMap
+                (\i o -> Http.get { url = o.url, expect = Http.expectJson (GotOverlay i) (D.field o.field (D.list terrainDecoder)) })
+                overlays
+        )
     )
 
 
@@ -267,15 +292,9 @@ init _ =
 
 type Msg
     = GotPalette (Result Http.Error (List Terrain))
-    | GotResources (Result Http.Error (List Terrain))
-    | GotBuildings (Result Http.Error (List Terrain))
-    | GotUnits (Result Http.Error (List Terrain))
-    | GotLandmarks (Result Http.Error (List Terrain))
+    | GotOverlay Int (Result Http.Error (List Terrain))
     | SelectTerrain Char
-    | SelectResource Char
-    | SelectBuilding Char
-    | SelectUnit Char
-    | SelectLandmark Char
+    | SelectOverlay Int Char
     | SetLayer Layer
     | SelectTool Tool
     | CellMouseDown Int Int
@@ -298,6 +317,11 @@ byKeyOf list =
     list |> List.map (\t -> ( t.key, t )) |> Dict.fromList
 
 
+firstKey : List Terrain -> Char
+firstKey list =
+    List.head list |> Maybe.map .key |> Maybe.withDefault empty
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
@@ -311,51 +335,24 @@ update msg model =
                         model.active
 
                     else
-                        List.head terrains |> Maybe.map .key |> Maybe.withDefault defaultFill
+                        firstKey terrains
             in
             ( { model | palette = terrains, byKey = byKey, active = active, status = "ready" }, Cmd.none )
 
         GotPalette (Err _) ->
             ( { model | status = "could not load palette.json" }, Cmd.none )
 
-        GotResources (Ok resources) ->
-            ( { model | resources = resources, byResKey = byKeyOf resources, activeResource = firstKey resources }, Cmd.none )
+        GotOverlay i (Ok list) ->
+            ( { model | overlays = updateOverlay i (\o -> { o | palette = list, byKey = byKeyOf list, active = firstKey list }) model.overlays }, Cmd.none )
 
-        GotResources (Err _) ->
-            ( { model | status = "could not load resources.json" }, Cmd.none )
-
-        GotBuildings (Ok buildings) ->
-            ( { model | buildings = buildings, byBldKey = byKeyOf buildings, activeBuilding = firstKey buildings }, Cmd.none )
-
-        GotBuildings (Err _) ->
-            ( { model | status = "could not load buildings.json" }, Cmd.none )
-
-        GotUnits (Ok units) ->
-            ( { model | units = units, byUnitKey = byKeyOf units, activeUnit = firstKey units }, Cmd.none )
-
-        GotUnits (Err _) ->
-            ( { model | status = "could not load units.json" }, Cmd.none )
-
-        GotLandmarks (Ok landmarks) ->
-            ( { model | landmarks = landmarks, byLmkKey = byKeyOf landmarks, activeLandmark = firstKey landmarks }, Cmd.none )
-
-        GotLandmarks (Err _) ->
-            ( { model | status = "could not load landmarks.json" }, Cmd.none )
+        GotOverlay i (Err _) ->
+            ( { model | status = "could not load " ++ (getOverlay i model.overlays |> Maybe.map .url |> Maybe.withDefault "an overlay") }, Cmd.none )
 
         SelectTerrain k ->
             ( { model | active = k, layer = TerrainLayer }, Cmd.none )
 
-        SelectResource k ->
-            ( { model | activeResource = k, layer = ResourceLayer }, Cmd.none )
-
-        SelectBuilding k ->
-            ( { model | activeBuilding = k, layer = BuildingLayer }, Cmd.none )
-
-        SelectUnit k ->
-            ( { model | activeUnit = k, layer = UnitLayer }, Cmd.none )
-
-        SelectLandmark k ->
-            ( { model | activeLandmark = k, layer = LandmarkLayer }, Cmd.none )
+        SelectOverlay i k ->
+            ( { model | overlays = updateOverlay i (\o -> { o | active = k }) model.overlays, layer = OverlayLayer i }, Cmd.none )
 
         SetLayer layer ->
             ( { model | layer = layer }, Cmd.none )
@@ -417,7 +414,15 @@ update msg model =
                 pushed =
                     pushHistory model
             in
-            ( { pushed | map = makeMap w h (grasslandKey model), resourceMap = makeMap w h empty, buildingMap = makeMap w h empty, unitMap = makeMap w h empty, landmarkMap = makeMap w h empty, vx = 0, vy = 0, status = "new map" }, Cmd.none )
+            ( { pushed
+                | map = makeMap w h (grasslandKey model)
+                , overlays = List.map (\o -> { o | grid = makeMap w h empty }) model.overlays
+                , vx = 0
+                , vy = 0
+                , status = "new map"
+              }
+            , Cmd.none
+            )
 
         Undo ->
             case model.history of
@@ -449,25 +454,31 @@ update msg model =
         FileLoaded contents ->
             case D.decodeString mapDecoder contents of
                 Ok loaded ->
-                    ( { model | name = loaded.name, map = loaded.terrain, resourceMap = loaded.resources, buildingMap = loaded.buildings, unitMap = loaded.units, landmarkMap = loaded.landmarks, history = [], future = [], vx = 0, vy = 0, status = "loaded " ++ loaded.name }, Cmd.none )
+                    ( { model
+                        | name = loaded.name
+                        , map = loaded.terrain
+                        , overlays = List.map2 (\o g -> { o | grid = g }) model.overlays loaded.overlayGrids
+                        , history = []
+                        , future = []
+                        , vx = 0
+                        , vy = 0
+                        , status = "loaded " ++ loaded.name
+                      }
+                    , Cmd.none
+                    )
 
                 Err _ ->
                     ( { model | status = "could not parse that map file" }, Cmd.none )
 
 
-firstKey : List Terrain -> Char
-firstKey list =
-    List.head list |> Maybe.map .key |> Maybe.withDefault empty
-
-
 current : Model -> Snapshot
 current model =
-    { terrain = model.map, resources = model.resourceMap, buildings = model.buildingMap, units = model.unitMap, landmarks = model.landmarkMap }
+    { terrain = model.map, overlays = List.map .grid model.overlays }
 
 
 restore : Snapshot -> Model -> Model
 restore snap model =
-    { model | map = snap.terrain, resourceMap = snap.resources, buildingMap = snap.buildings, unitMap = snap.units, landmarkMap = snap.landmarks }
+    { model | map = snap.terrain, overlays = List.map2 (\o g -> { o | grid = g }) model.overlays snap.overlays }
 
 
 pushHistory : Model -> Model
@@ -481,17 +492,8 @@ activeGrid model =
         TerrainLayer ->
             model.map
 
-        ResourceLayer ->
-            model.resourceMap
-
-        BuildingLayer ->
-            model.buildingMap
-
-        UnitLayer ->
-            model.unitMap
-
-        LandmarkLayer ->
-            model.landmarkMap
+        OverlayLayer i ->
+            getOverlay i model.overlays |> Maybe.map .grid |> Maybe.withDefault model.map
 
 
 setActiveGrid : MapData -> Model -> Model
@@ -500,17 +502,8 @@ setActiveGrid grid model =
         TerrainLayer ->
             { model | map = grid }
 
-        ResourceLayer ->
-            { model | resourceMap = grid }
-
-        BuildingLayer ->
-            { model | buildingMap = grid }
-
-        UnitLayer ->
-            { model | unitMap = grid }
-
-        LandmarkLayer ->
-            { model | landmarkMap = grid }
+        OverlayLayer i ->
+            { model | overlays = updateOverlay i (\o -> { o | grid = grid }) model.overlays }
 
 
 activeKey : Model -> Char
@@ -519,17 +512,8 @@ activeKey model =
         TerrainLayer ->
             model.active
 
-        ResourceLayer ->
-            model.activeResource
-
-        BuildingLayer ->
-            model.activeBuilding
-
-        UnitLayer ->
-            model.activeUnit
-
-        LandmarkLayer ->
-            model.activeLandmark
+        OverlayLayer i ->
+            getOverlay i model.overlays |> Maybe.map .active |> Maybe.withDefault empty
 
 
 eyedrop : Int -> Int -> Model -> Model
@@ -542,17 +526,8 @@ eyedrop x y model =
         TerrainLayer ->
             { model | active = picked }
 
-        ResourceLayer ->
-            { model | activeResource = picked }
-
-        BuildingLayer ->
-            { model | activeBuilding = picked }
-
-        UnitLayer ->
-            { model | activeUnit = picked }
-
-        LandmarkLayer ->
-            { model | activeLandmark = picked }
+        OverlayLayer i ->
+            { model | overlays = updateOverlay i (\o -> { o | active = picked }) model.overlays }
 
 
 dropExtension : String -> String
@@ -573,41 +548,47 @@ encodeMap : Model -> String
 encodeMap model =
     E.encode 2 <|
         E.object
-            [ ( "name", E.string model.name )
-            , ( "width", E.int model.map.width )
-            , ( "height", E.int model.map.height )
-            , ( "rows", E.list E.string (rowsToStrings model.map) )
-            , ( "resources", E.list E.string (rowsToStrings model.resourceMap) )
-            , ( "buildings", E.list E.string (rowsToStrings model.buildingMap) )
-            , ( "units", E.list E.string (rowsToStrings model.unitMap) )
-            , ( "landmarks", E.list E.string (rowsToStrings model.landmarkMap) )
-            ]
+            ([ ( "name", E.string model.name )
+             , ( "width", E.int model.map.width )
+             , ( "height", E.int model.map.height )
+             , ( "rows", E.list E.string (rowsToStrings model.map) )
+             ]
+                ++ List.map (\o -> ( o.field, E.list E.string (rowsToStrings o.grid) )) model.overlays
+            )
 
 
 type alias LoadedMap =
-    { name : String, terrain : MapData, resources : MapData, buildings : MapData, units : MapData, landmarks : MapData }
+    { name : String, terrain : MapData, overlayGrids : List MapData }
 
 
+{-| Decode the base fields, then one grid per overlay field (in `overlayTitles`
+order), so any number of layers decodes without an arity ceiling.
+-}
 mapDecoder : D.Decoder LoadedMap
 mapDecoder =
-    D.map8
-        (\name w h rows mres mbld munits mlmk ->
-            { name = name
-            , terrain = { width = w, height = h, rows = rowsFromStrings rows }
-            , resources = overlayGrid w h mres
-            , buildings = overlayGrid w h mbld
-            , units = overlayGrid w h munits
-            , landmarks = overlayGrid w h mlmk
-            }
-        )
+    D.map4 (\name w h rows -> { name = name, w = w, h = h, rows = rows })
         (D.field "name" D.string)
         (D.field "width" D.int)
         (D.field "height" D.int)
         (D.field "rows" (D.list D.string))
-        (D.maybe (D.field "resources" (D.list D.string)))
-        (D.maybe (D.field "buildings" (D.list D.string)))
-        (D.maybe (D.field "units" (D.list D.string)))
-        (D.maybe (D.field "landmarks" (D.list D.string)))
+        |> D.andThen
+            (\base ->
+                overlayTitles
+                    |> List.map (\field -> D.map (overlayGrid base.w base.h) (D.maybe (D.field field (D.list D.string))))
+                    |> combine
+                    |> D.map
+                        (\grids ->
+                            { name = base.name
+                            , terrain = { width = base.w, height = base.h, rows = rowsFromStrings base.rows }
+                            , overlayGrids = grids
+                            }
+                        )
+            )
+
+
+combine : List (D.Decoder a) -> D.Decoder (List a)
+combine =
+    List.foldr (D.map2 (::)) (D.succeed [])
 
 
 overlayGrid : Int -> Int -> Maybe (List String) -> MapData
@@ -636,33 +617,27 @@ view model =
             , gridView model
             , statusView model
             ]
-        , editorsColumn
+        , editorsColumn model
         ]
 
 
-editorsColumn : Html Msg
-editorsColumn =
+editorsColumn : Model -> Html Msg
+editorsColumn model =
     div [ A.style "display" "flex", A.style "flex-direction" "column", A.style "gap" "4px", A.style "min-width" "150px" ]
-        [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "editors" ]
-        , editorLink "/terrain.html" "edit terrain ↗"
-        , editorLink "/resources.html" "edit resources ↗"
-        , editorLink "/buildings.html" "edit buildings ↗"
-        , editorLink "/units.html" "edit units ↗"
-        , editorLink "/landmarks.html" "edit landmarks ↗"
-        ]
+        (div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "editors" ]
+            :: editorLink "/terrain.html" "edit terrain ↗"
+            :: List.map (\o -> editorLink o.editorHref ("edit " ++ o.title ++ " ↗")) model.overlays
+        )
 
 
 layerView : Model -> Html Msg
 layerView model =
     div []
         [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "layer" ]
-        , div [ A.style "display" "flex", A.style "gap" "4px" ]
-            [ layerButton model TerrainLayer "terrain"
-            , layerButton model ResourceLayer "resources"
-            , layerButton model BuildingLayer "buildings"
-            , layerButton model UnitLayer "units"
-            , layerButton model LandmarkLayer "landmarks"
-            ]
+        , div [ A.style "display" "flex", A.style "gap" "4px", A.style "flex-wrap" "wrap" ]
+            (layerButton model TerrainLayer "terrain"
+                :: List.indexedMap (\i o -> layerButton model (OverlayLayer i) o.title) model.overlays
+            )
         ]
 
 
@@ -685,17 +660,13 @@ paletteView model =
         TerrainLayer ->
             paletteSection "terrain" (List.map (paletteButton SelectTerrain model.active) model.palette)
 
-        ResourceLayer ->
-            paletteSection "resources" (noneButton SelectResource model.activeResource :: List.map (paletteButton SelectResource model.activeResource) model.resources)
+        OverlayLayer i ->
+            case getOverlay i model.overlays of
+                Just o ->
+                    paletteSection o.title (noneButton (SelectOverlay i) o.active :: List.map (paletteButton (SelectOverlay i) o.active) o.palette)
 
-        BuildingLayer ->
-            paletteSection "buildings" (noneButton SelectBuilding model.activeBuilding :: List.map (paletteButton SelectBuilding model.activeBuilding) model.buildings)
-
-        UnitLayer ->
-            paletteSection "units" (noneButton SelectUnit model.activeUnit :: List.map (paletteButton SelectUnit model.activeUnit) model.units)
-
-        LandmarkLayer ->
-            paletteSection "landmarks" (noneButton SelectLandmark model.activeLandmark :: List.map (paletteButton SelectLandmark model.activeLandmark) model.landmarks)
+                Nothing ->
+                    text ""
 
 
 paletteSection : String -> List (Html Msg) -> Html Msg
@@ -878,31 +849,12 @@ cellView model x y =
         [ text glyph ]
 
 
-firstJust : List (Maybe a) -> Maybe a
-firstJust list =
-    case list of
-        [] ->
-            Nothing
-
-        (Just v) :: _ ->
-            Just v
-
-        Nothing :: rest ->
-            firstJust rest
-
-
-{-| The glyph drawn at a tile: unit over building over resource over terrain.
+{-| The glyph drawn at a tile: the topmost overlay with something there, else
+the terrain. Overlays are stored bottom-to-top, so the search runs in reverse.
 -}
 topCell : Model -> Int -> Int -> ( String, String )
 topCell model x y =
-    case
-        firstJust
-            [ overlayAt x y model.unitMap model.byUnitKey
-            , overlayAt x y model.buildingMap model.byBldKey
-            , overlayAt x y model.landmarkMap model.byLmkKey
-            , overlayAt x y model.resourceMap model.byResKey
-            ]
-    of
+    case firstJust (List.reverse model.overlays |> List.map (\o -> overlayAt x y o.grid o.byKey)) of
         Just gc ->
             gc
 
@@ -917,6 +869,19 @@ topCell model x y =
 
                 Nothing ->
                     ( String.fromChar terrainCh, "#888" )
+
+
+firstJust : List (Maybe a) -> Maybe a
+firstJust list =
+    case list of
+        [] ->
+            Nothing
+
+        (Just v) :: _ ->
+            Just v
+
+        Nothing :: rest ->
+            firstJust rest
 
 
 overlayAt : Int -> Int -> MapData -> Dict Char Terrain -> Maybe ( String, String )
@@ -948,17 +913,13 @@ statusView model =
                 TerrainLayer ->
                     "terrain:" ++ nameOf model.active model.byKey
 
-                ResourceLayer ->
-                    "resource:" ++ overlayName model.activeResource model.byResKey
+                OverlayLayer i ->
+                    case getOverlay i model.overlays of
+                        Just o ->
+                            o.title ++ ":" ++ overlayName o.active o.byKey
 
-                BuildingLayer ->
-                    "building:" ++ overlayName model.activeBuilding model.byBldKey
-
-                UnitLayer ->
-                    "unit:" ++ overlayName model.activeUnit model.byUnitKey
-
-                LandmarkLayer ->
-                    "landmark:" ++ overlayName model.activeLandmark model.byLmkKey
+                        Nothing ->
+                            "?"
     in
     div [ A.style "margin-top" "8px", A.style "opacity" "0.85" ]
         [ text
