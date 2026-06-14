@@ -22,6 +22,24 @@ it headlessly with =new= / =tick= / =show= subcommands.  Determinism and
 save/resume are covered by tests, including a save-then-resume run that matches
 an uninterrupted one.
 
+** Browser map editor with data-driven layers
+
+Built an Elm browser map editor: a movable viewport over an arbitrarily large
+board, paint/fill/eyedropper/drag tools, undo-redo, and JSON save/load.  The
+board is a base terrain grid plus a stack of overlay layers, each driven by a
+TOML palette fed through the CLI and edited in its own browser tab.  Adding a
+layer is one entry in =overlayTitles= plus its data file, CLI feed, and editor
+page.  Layers so far (bottom to top): climate, resources, landmarks, buildings,
+units, weather.
+
+** Visibility rotation
+
+A tile can hold content on several layers at once, so the board cycles through
+every contributing layer one symbol per second, revealing each item in turn.
+Every layer carries a toggle to exclude it from the rotation; an empty rotation
+set falls back to the topmost occupied layer.  Weather and Climate ship as
+placeholder layers (=Weather A=, =Climate A=) pending real graphics.
+
 * Next
 
 - The simulation is one stat and one rule by design; extend it only by direction
