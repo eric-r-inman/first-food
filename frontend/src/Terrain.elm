@@ -412,7 +412,7 @@ glyphSection model t =
             )
         , if model.pickerOpen then
             div [ A.style "margin" "4px 0 4px 98px" ]
-                [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "ASCII (click to set)" ]
+                [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "characters (click to set)" ]
                 , asciiTable
                 , div [ A.style "margin-top" "8px", A.style "display" "flex", A.style "gap" "6px", A.style "align-items" "center" ]
                     [ span [ A.style "opacity" "0.8" ] [ text "unicode U+" ]
@@ -426,10 +426,36 @@ glyphSection model t =
         ]
 
 
+glyphRanges : List ( String, Int, Int )
+glyphRanges =
+    [ ( "ASCII", 32, 126 )
+    , ( "Latin-1", 160, 255 )
+    , ( "Box drawing", 0x2500, 0x257F )
+    , ( "Block elements", 0x2580, 0x259F )
+    , ( "Geometric shapes", 0x25A0, 0x25FF )
+    , ( "Arrows", 0x2190, 0x21FF )
+    ]
+
+
 asciiTable : Html Msg
 asciiTable =
-    div [ A.style "display" "flex", A.style "flex-wrap" "wrap", A.style "max-width" "340px", A.style "gap" "2px" ]
-        (List.range 32 126 |> List.map asciiCell)
+    div
+        [ A.style "max-height" "320px"
+        , A.style "overflow-y" "auto"
+        , A.style "max-width" "380px"
+        , A.style "border" "1px solid #222"
+        , A.style "padding" "4px"
+        ]
+        (List.map glyphRangeView glyphRanges)
+
+
+glyphRangeView : ( String, Int, Int ) -> Html Msg
+glyphRangeView ( label, start, end ) =
+    div [ A.style "margin-bottom" "6px" ]
+        [ div [ A.style "opacity" "0.55", A.style "font-size" "11px", A.style "margin-bottom" "2px" ] [ text label ]
+        , div [ A.style "display" "flex", A.style "flex-wrap" "wrap", A.style "gap" "2px" ]
+            (List.range start end |> List.map asciiCell)
+        ]
 
 
 asciiCell : Int -> Html Msg
