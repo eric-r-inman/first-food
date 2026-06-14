@@ -1,7 +1,9 @@
 # Terrain types.  `key` is the compact code stored per tile in a saved map;
 # `glyph` and `color` are display only, so a visual designer can retheme the
 # look by editing this file without touching code or invalidating saves.
-# Colors are names understood by the renderer (e.g. green, blue, bright_yellow).
+# Colors are names understood by the renderers (e.g. green, blue, cyan,
+# bright_white).  This palette is the empire-builder board's base terrain; more
+# can be added freely, and the map editor can also create them at runtime.
 
 [[terrain]]
 id = "grass"
@@ -14,3 +16,63 @@ id = "water"
 key = "~"
 glyph = "≈"
 color = "blue"
+
+[[terrain]]
+id = "grassland"
+key = "g"
+glyph = "\""
+color = "bright_green"
+
+[[terrain]]
+id = "plains"
+key = "p"
+glyph = "."
+color = "yellow"
+
+[[terrain]]
+id = "desert"
+key = "d"
+glyph = "·"
+color = "bright_yellow"
+
+[[terrain]]
+id = "tundra"
+key = "t"
+glyph = ","
+color = "white"
+
+[[terrain]]
+id = "snow"
+key = "w"
+glyph = "*"
+color = "bright_white"
+
+[[terrain]]
+id = "ocean"
+key = "o"
+glyph = "≈"
+color = "blue"
+
+[[terrain]]
+id = "coast"
+key = "c"
+glyph = "~"
+color = "cyan"
+
+[[terrain]]
+id = "mountains"
+key = "m"
+glyph = "▲"
+color = "bright_black"
+
+[[terrain]]
+id = "hills"
+key = "h"
+glyph = "∩"
+color = "bright_yellow"
+
+[[terrain]]
+id = "forest"
+key = "f"
+glyph = "♣"
+color = "bright_green"

@@ -15,6 +15,8 @@ pub enum AppError {
   Data(#[from] first_food_lib::GameDataError),
   #[error(transparent)]
   Save(#[from] first_food_lib::SaveError),
+  #[error("could not serialize the terrain palette to JSON: {0}")]
+  PaletteJson(#[from] serde_json::Error),
 }
 
 /// Dispatch the parsed subcommand.
@@ -49,6 +51,10 @@ pub fn run(config: Config) -> Result<ExitCode, AppError> {
         world
       };
       println!("{}", render::world(&world, &data));
+    }
+    Commands::Palette => {
+      let data = GameData::load(&config.data_dir)?;
+      println!("{}", serde_json::to_string_pretty(&data.terrain)?);
     }
   }
   Ok(ExitCode::SUCCESS)

@@ -26,3 +26,27 @@ frontend, and the server-crate stub.
 Each deviation is recorded as a =compliance-ignores= entry in
 =rust-template.json=.  Re-enable any one by reverting its change and removing
 the matching ignore.
+
+* TODO Browser-based map editor for the empire-builder game board
+
+Full design and feature outline: =docs/map-editor-design.org=.  The editor moves
+from the terminal into the browser — an Elm SPA renders a large, scrollable
+ASCII map and the server (later) persists maps — because the project targets a
+web game and a terminal window is too cramped for large, complex boards.  Elm
+builds offline with only core packages, so this needs no new dependencies.
+
+Phases (see the design doc for the full feature list):
+
+1. [DONE] Model and palette — a rich, data-driven terrain palette in
+   =data/terrain.toml=; the =first-food-cli palette= command emits it as JSON
+   for the front end.
+2. [IN PROGRESS] Editor v1 (Elm) — load the palette, render a scrollable colored
+   grid with a movable viewport over large maps, a terrain palette, paint /
+   bucket-fill / eyedropper tools, new map, undo/redo, save/load JSON, and a
+   status bar.  Served as static files via =just editor=.
+3. [TODO] Server API — the server serves the SPA and persists maps (get/save/
+   list) so boards live on the server, not only as downloads.
+4. [TODO] Navigation and tools — zoom, minimap, brush size, resize/crop.
+5. [TODO] Accounts and local save — per-user maps behind login; local save.
+6. [TODO] Layers and generation — features, resources, rivers; procedural
+   landmass/climate generation.

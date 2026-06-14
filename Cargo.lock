@@ -764,6 +764,7 @@ dependencies = [
  "first-food-lib",
  "rust-template-foundation",
  "serde",
+ "serde_json",
  "tap",
  "tempfile",
  "thiserror 2.0.18",

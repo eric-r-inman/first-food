@@ -1,0 +1,132 @@
+#+title:     Map Editor — Design and Feature Outline
+#+language:  en
+
+The map editor is a development tool for authoring the large ASCII/Unicode maps
+that serve as the game board for an empire-builder (Civilization-like) game with
+Dwarf-Fortress-style text graphics.  It is built /before/ game logic and is
+deliberately genre-agnostic: it edits a data-driven grid of terrain, and the
+same map feeds whatever game is built on top (units, resources, climate,
+buildings come later).
+
+* Architecture decision — the editor is a browser app
+
+The first editor was a single terminal window.  That is too cramped to author
+large, complex maps and does not match the project's direction: a *web-browser
+game where players log in and save progress on the server or locally*.
+
+So the editor moves to the **browser**: an *Elm* single-page app renders the map
+and provides the editing UI, served by the *server* crate over a small HTTP/JSON
+API for loading and saving maps.  This is exactly what the template's kept Elm
+frontend and =server= crate are for.
+
+Why this is the right call:
+
+- A browser viewport scrolls and zooms; it can show and navigate a map far
+  larger than any terminal, with a minimap and panels — the "friendly UI" the
+  terminal could not be.
+- It matches the web-game vision directly: the same server that serves the
+  editor will host the game and per-user saves; login is the template's OIDC.
+- It is feasible here: the Elm app needs only core Elm packages (already pinned
+  and cached), so it builds offline with no new dependencies, and the foundation
+  server already supports serving an SPA.
+
+The terminal tool (=first-food-dev=) stays for quick, keyboard-only poking, but
+the browser editor is the primary, full-featured tool.
+
+*Caveat:* a browser UI cannot be visually verified from this development
+environment.  The Rust model and server are covered by tests; the editor's
+look-and-feel must be exercised by a human in a browser, so UX is iterative.
+
+* Feature outline
+
+What a map editor for this game requires, grouped by area.  Items are marked
+[v1] (core, built first), [next] (soon after), or [later] (needs game-logic
+context or heavier work).
+
+** Canvas and navigation
+
+- [v1] Render a large grid of Unicode cells, each colored by terrain.
+- [v1] Scroll/pan a map larger than the viewport (the canvas is a window onto
+  the map, not the whole map at once).
+- [v1] A status bar: cursor coordinates, active tool, active terrain, map name,
+  and an unsaved-changes indicator.
+- [next] Zoom (adjustable cell size) for overview vs. detail.
+- [next] A minimap showing the whole map and the current viewport.
+- [next] Jump-to-coordinate and center-on-cursor.
+
+** Terrain and layers
+
+- [v1] A rich, data-driven terrain palette (ocean, coast, grassland, plains,
+  desert, tundra, snow, mountains, hills, …), each with a name, glyph, and
+  color, defined in =data/terrain.toml= and editable without code.
+- [v1] Per-terrain universal properties (the existing key/value system) so later
+  game logic can read tunables (movement cost, yields, passability) off each
+  terrain.
+- [later] Multiple layers over the base terrain: features (forest, jungle,
+  marsh, ice, floodplains), resources, rivers (along cell edges), and
+  improvements.  The model is designed so layers can be added without reworking
+  the base grid.
+
+** Editing tools
+
+- [v1] Brush: paint the active terrain into the cell under the cursor.
+- [v1] Bucket fill: flood-fill a contiguous region of one terrain.
+- [v1] Eyedropper: pick the terrain under the cursor as the active terrain.
+- [next] Adjustable brush size; rectangle and line tools; rectangular select
+  then fill/clear.
+
+** Map operations
+
+- [v1] New map: choose width, height, and a default terrain to fill.
+- [v1] Save and load named maps.
+- [next] Resize / crop / expand an existing map.
+- [later] Procedural generation (noise-based landmasses, climate bands) as a
+  starting point an author then refines.
+- [later] Import / export to/from the game engine's format.
+
+** Persistence and accounts
+
+- [v1] Save and load maps through the server as standalone map files, separate
+  from any game save.
+- [next] Local (browser/file) save as an alternative to the server.
+- [later] Per-user maps behind login (the template's OIDC), matching "save on
+  our server or locally."
+
+** History and usability
+
+- [v1] Undo / redo of edits.
+- [v1] Keyboard shortcuts for tools and palette selection.
+- [next] A legend / help overlay; high-contrast, readable colors and cell sizing
+  chosen for legibility.
+
+** Integrity
+
+- [v1] Every cell always references a known terrain; loading validates this and
+  reports problems rather than failing silently.
+
+* Data model
+
+- A *map* is a width, a height, and a grid of terrain keys (row-major), plus a
+  name.  This scales fine to "huge" boards (tens of thousands of cells are a few
+  kilobytes of keys).  Layers, when added, are parallel grids keyed the same
+  way.
+- The *terrain palette* and its universal property keys live in
+  =data/terrain.toml= (already the case); the editor reads and writes it.
+- Maps are saved as standalone JSON map files (under =maps/=), distinct from any
+  game/world save, so the board is a reusable artifact.
+
+* Phased delivery plan
+
+1. *Model and palette* — a rich terrain palette in data; a standalone =Map= file
+   format (save/load) in the library, independent of the colony world save;
+   tests.
+2. *Server API* — the =server= crate serves the Elm SPA and exposes a small JSON
+   API: get the terrain palette, get a map, save a map, list maps.
+3. *Editor v1 (Elm)* — load the palette and a map, render a scrollable colored
+   grid, select a terrain from the palette, paint and bucket-fill cells, new
+   map, and save.  Status bar and undo/redo.
+4. *Tools and navigation* — zoom, minimap, eyedropper, brush size, resize.
+5. *Accounts and local save* — per-user maps behind login; local save.
+6. *Layers and generation* — features/resources/rivers; procedural generation.
+
+Progress is tracked in =tasks.org=.

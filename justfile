@@ -30,3 +30,9 @@ dev *args:
 dev-tool:
     nix develop --command cargo build --package first-food-dev
     osascript -e 'tell application "Terminal" to do script "cd \"{{justfile_directory()}}\" && ./target/debug/first-food-dev"'
+
+# Build and serve the browser map editor at http://localhost:8080 (Ctrl-C to
+# stop).  Emits the terrain palette, compiles the Elm app, then serves the
+# static files; works from a bare terminal in the project root.
+editor:
+    nix develop --command bash -c 'set -e; cd "{{justfile_directory()}}"; cargo run --quiet --package first-food-cli -- palette > frontend/public/palette.json; (cd frontend && elm make src/Main.elm --output public/elm.js); echo "Map editor: http://localhost:8080  (Ctrl-C to stop)"; cd frontend/public && python3 -m http.server 8080'

@@ -17,6 +17,8 @@ first-food-lib = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
+# Serializes the terrain palette to JSON for the browser map editor.
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 # Enables method chaining and reduces superfluous local variables that only
 # exist to name intermediate results.  Prefer .tap() over temporary variables

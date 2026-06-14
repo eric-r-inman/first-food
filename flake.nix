@@ -114,6 +114,8 @@
           changelog-roller.packages.${system}.default
           # Formats org-mode documents (treefmt delegates .org files to it).
           org-fmt.packages.${system}.default
+          # Static file server for the browser map editor (`just editor`).
+          pkgs.python3
         ];
         shellHook = ''
           ${foundation.lib.cargoHuskyHookSnippet pkgs}
