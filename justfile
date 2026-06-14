@@ -37,4 +37,4 @@ dev-tool:
 # Ctrl-C stops it.
 # Build, serve, and open the browser map editor at http://localhost:8080.
 editor:
-    nix develop --command bash -c 'set -e; cd "{{justfile_directory()}}"; cargo run --quiet --package first-food-cli -- palette > frontend/public/palette.json; (cd frontend && elm make src/Main.elm --output public/elm.js); echo "Map editor: http://localhost:8080  (Ctrl-C to stop)"; (sleep 1 && open http://localhost:8080) & cd frontend/public && python3 -m http.server 8080'
+    nix develop --command bash -c 'set -e; cd "{{justfile_directory()}}"; cargo run --quiet --package first-food-cli -- palette > frontend/public/palette.json; (cd frontend && elm make src/Main.elm --output public/elm.js && elm make src/Terrain.elm --output public/terrain.js); echo "Map editor: http://localhost:8080  (Ctrl-C to stop)"; (sleep 1 && open http://localhost:8080) & cd frontend/public && python3 -m http.server 8080'

@@ -10,13 +10,14 @@ server emits (palette.json); maps are saved and loaded as JSON files.
 
 import Array exposing (Array)
 import Browser
+import Browser.Events
 import Dict exposing (Dict)
 import File exposing (File)
 import File.Download as Download
 import File.Select as Select
-import Html exposing (Html, button, div, input, span, text)
+import Html exposing (Html, a, button, div, input, span, text)
 import Html.Attributes as A
-import Html.Events exposing (onClick, onInput, onMouseEnter)
+import Html.Events exposing (onClick, onInput, onMouseDown, onMouseEnter)
 import Http
 import Json.Decode as D
 import Json.Encode as E
@@ -167,6 +168,7 @@ type alias Model =
     , status : String
     , newW : String
     , newH : String
+    , painting : Bool
     }
 
 
@@ -182,7 +184,16 @@ viewportH =
 
 defaultFill : Char
 defaultFill =
-    'o'
+    'g'
+
+
+grasslandKey : Model -> Char
+grasslandKey model =
+    model.palette
+        |> List.filter (\t -> t.id == "grassland")
+        |> List.head
+        |> Maybe.map .key
+        |> Maybe.withDefault defaultFill
 
 
 init : () -> ( Model, Cmd Msg )
@@ -201,8 +212,9 @@ init _ =
       , status = "loading palette…"
       , newW = "64"
       , newH = "40"
+      , painting = False
       }
-    , Http.get { url = "palette.json", expect = Http.expectJson GotPalette (D.list terrainDecoder) }
+    , Http.get { url = "palette.json", expect = Http.expectJson GotPalette (D.field "terrain" (D.list terrainDecoder)) }
     )
 
 
@@ -214,8 +226,9 @@ type Msg
     = GotPalette (Result Http.Error (List Terrain))
     | SelectTerrain Char
     | SelectTool Tool
-    | Hover Int Int
-    | CellDown Int Int
+    | CellMouseDown Int Int
+    | CellMouseEnter Int Int
+    | StopPaint
     | Pan Int Int
     | SetNewW String
     | SetNewH String
@@ -254,19 +267,34 @@ update msg model =
         SelectTool t ->
             ( { model | tool = t }, Cmd.none )
 
-        Hover x y ->
-            ( { model | cursor = Just ( x, y ) }, Cmd.none )
-
-        CellDown x y ->
+        CellMouseDown x y ->
             case model.tool of
                 Eyedropper ->
                     ( { model | active = getCell x y model.map |> Maybe.withDefault model.active }, Cmd.none )
 
-                Paint ->
-                    ( commit (setCell x y model.active model.map) model, Cmd.none )
-
                 Fill ->
                     ( commit (floodFill x y model.active model.map) model, Cmd.none )
+
+                Paint ->
+                    let
+                        started =
+                            { model | history = model.map :: model.history, future = [], painting = True, status = "edited" }
+                    in
+                    ( { started | map = setCell x y model.active started.map }, Cmd.none )
+
+        CellMouseEnter x y ->
+            let
+                hovered =
+                    { model | cursor = Just ( x, y ) }
+            in
+            if model.painting then
+                ( { hovered | map = setCell x y model.active hovered.map }, Cmd.none )
+
+            else
+                ( hovered, Cmd.none )
+
+        StopPaint ->
+            ( { model | painting = False }, Cmd.none )
 
         Pan dx dy ->
             ( { model
@@ -290,7 +318,7 @@ update msg model =
                 h =
                     String.toInt model.newH |> Maybe.withDefault 40 |> clamp 1 1000
             in
-            ( commit (makeMap w h model.active) { model | vx = 0, vy = 0 }, Cmd.none )
+            ( commit (makeMap w h (grasslandKey model)) { model | vx = 0, vy = 0 }, Cmd.none )
 
         Undo ->
             case model.history of
@@ -402,6 +430,7 @@ toolsView model =
             , plainButton Redo "redo"
             , plainButton SaveMap "save"
             , plainButton LoadRequested "load"
+            , terrainEditorLink
             ]
         , div [ A.style "margin-top" "8px", A.style "display" "flex", A.style "gap" "4px", A.style "align-items" "center" ]
             [ text "new "
@@ -449,6 +478,20 @@ plainButton msg label =
         , A.style "cursor" "pointer"
         ]
         [ text label ]
+
+
+terrainEditorLink : Html Msg
+terrainEditorLink =
+    a
+        [ A.href "/terrain.html"
+        , A.target "_blank"
+        , A.style "background" "#1a1d24"
+        , A.style "color" "#ddd"
+        , A.style "border" "1px solid #333"
+        , A.style "padding" "4px 8px"
+        , A.style "text-decoration" "none"
+        ]
+        [ text "edit terrain ↗" ]
 
 
 sizeInput : String -> (String -> Msg) -> Html Msg
@@ -511,8 +554,8 @@ cellView model x y =
             model.cursor == Just ( x, y )
     in
     span
-        [ onMouseEnter (Hover x y)
-        , onClick (CellDown x y)
+        [ onMouseEnter (CellMouseEnter x y)
+        , onMouseDown (CellMouseDown x y)
         , A.style "color" color
         , A.style "display" "inline-block"
         , A.style "width" "1ch"
@@ -613,11 +656,20 @@ cssColor name =
 -- MAIN
 
 
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    if model.painting then
+        Browser.Events.onMouseUp (D.succeed StopPaint)
+
+    else
+        Sub.none
+
+
 main : Program () Model Msg
 main =
     Browser.element
         { init = init
         , update = update
         , view = view
-        , subscriptions = \_ -> Sub.none
+        , subscriptions = subscriptions
         }

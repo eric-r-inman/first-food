@@ -54,7 +54,11 @@ pub fn run(config: Config) -> Result<ExitCode, AppError> {
     }
     Commands::Palette => {
       let data = GameData::load(&config.data_dir)?;
-      println!("{}", serde_json::to_string_pretty(&data.terrain)?);
+      let palette = serde_json::json!({
+        "property_keys": data.terrain_property_keys,
+        "terrain": data.terrain,
+      });
+      println!("{}", serde_json::to_string_pretty(&palette)?);
     }
   }
   Ok(ExitCode::SUCCESS)
