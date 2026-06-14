@@ -54,6 +54,8 @@ pub enum Commands {
   Play(PlayArgs),
   /// Print the terrain palette as JSON (consumed by the browser map editor).
   Palette,
+  /// Print the resource palette as JSON (consumed by the browser editors).
+  Resources,
 }
 
 #[derive(Debug, Clone, MergeConfig)]

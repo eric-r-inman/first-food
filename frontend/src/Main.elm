@@ -3,8 +3,9 @@ module Main exposing (main)
 {-| Browser map editor for the empire-builder game board.
 
 The editor renders a movable viewport over a potentially large ASCII map, so the
-DOM stays small no matter how big the map is. Terrain comes from the palette the
-server emits (palette.json); maps are saved and loaded as JSON files.
+DOM stays small no matter how big the map is. There are two layers: the base
+terrain and a resource layer placed over it. Terrain and resource palettes come
+from the server (palette.json, resources.json); maps are saved/loaded as JSON.
 
 -}
 
@@ -25,7 +26,7 @@ import Task
 
 
 
--- TERRAIN
+-- TERRAIN / RESOURCE (same shape: a keyed, colored glyph)
 
 
 type alias Terrain =
@@ -51,7 +52,7 @@ firstChar s =
 
 
 
--- MAP
+-- MAP / GRID
 
 
 type alias MapData =
@@ -115,32 +116,14 @@ floodLoop replacement target stack m =
                 floodLoop replacement target rest m
 
 
-mapDecoder : D.Decoder ( String, MapData )
-mapDecoder =
-    D.map4 (\name w h rows -> ( name, { width = w, height = h, rows = rowsFromStrings rows } ))
-        (D.field "name" D.string)
-        (D.field "width" D.int)
-        (D.field "height" D.int)
-        (D.field "rows" (D.list D.string))
-
-
 rowsFromStrings : List String -> Array (Array Char)
 rowsFromStrings rows =
     rows |> List.map (String.toList >> Array.fromList) |> Array.fromList
 
 
-encodeMap : String -> MapData -> String
-encodeMap name m =
-    E.encode 2 <|
-        E.object
-            [ ( "name", E.string name )
-            , ( "width", E.int m.width )
-            , ( "height", E.int m.height )
-            , ( "rows"
-              , E.list E.string
-                    (m.rows |> Array.toList |> List.map (Array.toList >> String.fromList))
-              )
-            ]
+rowsToStrings : MapData -> List String
+rowsToStrings m =
+    m.rows |> Array.toList |> List.map (Array.toList >> String.fromList)
 
 
 
@@ -153,18 +136,39 @@ type Tool
     | Eyedropper
 
 
+type Layer
+    = TerrainLayer
+    | ResourceLayer
+
+
+{-| No resource on a tile is stored as a space in the resource grid.
+-}
+noResource : Char
+noResource =
+    ' '
+
+
+type alias Snapshot =
+    { terrain : MapData, resources : MapData }
+
+
 type alias Model =
     { palette : List Terrain
     , byKey : Dict Char Terrain
+    , resources : List Terrain
+    , byResKey : Dict Char Terrain
     , map : MapData
+    , resourceMap : MapData
     , name : String
     , tool : Tool
+    , layer : Layer
     , active : Char
+    , activeResource : Char
     , vx : Int
     , vy : Int
     , cursor : Maybe ( Int, Int )
-    , history : List MapData
-    , future : List MapData
+    , history : List Snapshot
+    , future : List Snapshot
     , status : String
     , newW : String
     , newH : String
@@ -200,21 +204,29 @@ init : () -> ( Model, Cmd Msg )
 init _ =
     ( { palette = []
       , byKey = Dict.empty
+      , resources = []
+      , byResKey = Dict.empty
       , map = makeMap 64 40 defaultFill
+      , resourceMap = makeMap 64 40 noResource
       , name = "untitled"
       , tool = Paint
+      , layer = TerrainLayer
       , active = defaultFill
+      , activeResource = noResource
       , vx = 0
       , vy = 0
       , cursor = Nothing
       , history = []
       , future = []
-      , status = "loading palette…"
+      , status = "loading palettes…"
       , newW = "64"
       , newH = "40"
       , painting = False
       }
-    , Http.get { url = "palette.json", expect = Http.expectJson GotPalette (D.field "terrain" (D.list terrainDecoder)) }
+    , Cmd.batch
+        [ Http.get { url = "palette.json", expect = Http.expectJson GotPalette (D.field "terrain" (D.list terrainDecoder)) }
+        , Http.get { url = "resources.json", expect = Http.expectJson GotResources (D.field "resources" (D.list terrainDecoder)) }
+        ]
     )
 
 
@@ -224,7 +236,10 @@ init _ =
 
 type Msg
     = GotPalette (Result Http.Error (List Terrain))
+    | GotResources (Result Http.Error (List Terrain))
     | SelectTerrain Char
+    | SelectResource Char
+    | SetLayer Layer
     | SelectTool Tool
     | CellMouseDown Int Int
     | CellMouseEnter Int Int
@@ -261,8 +276,27 @@ update msg model =
         GotPalette (Err _) ->
             ( { model | status = "could not load palette.json" }, Cmd.none )
 
+        GotResources (Ok resources) ->
+            let
+                byResKey =
+                    resources |> List.map (\t -> ( t.key, t )) |> Dict.fromList
+
+                activeResource =
+                    List.head resources |> Maybe.map .key |> Maybe.withDefault noResource
+            in
+            ( { model | resources = resources, byResKey = byResKey, activeResource = activeResource }, Cmd.none )
+
+        GotResources (Err _) ->
+            ( { model | status = "could not load resources.json" }, Cmd.none )
+
         SelectTerrain k ->
-            ( { model | active = k }, Cmd.none )
+            ( { model | active = k, layer = TerrainLayer }, Cmd.none )
+
+        SelectResource k ->
+            ( { model | activeResource = k, layer = ResourceLayer }, Cmd.none )
+
+        SetLayer layer ->
+            ( { model | layer = layer }, Cmd.none )
 
         SelectTool t ->
             ( { model | tool = t }, Cmd.none )
@@ -270,17 +304,17 @@ update msg model =
         CellMouseDown x y ->
             case model.tool of
                 Eyedropper ->
-                    ( { model | active = getCell x y model.map |> Maybe.withDefault model.active }, Cmd.none )
+                    ( eyedrop x y model, Cmd.none )
 
                 Fill ->
-                    ( commit (floodFill x y model.active model.map) model, Cmd.none )
+                    ( setActiveGrid (floodFill x y (activeKey model) (activeGrid model)) (pushHistory model), Cmd.none )
 
                 Paint ->
                     let
-                        started =
-                            { model | history = model.map :: model.history, future = [], painting = True, status = "edited" }
+                        painted =
+                            setActiveGrid (setCell x y (activeKey model) (activeGrid model)) (pushHistory model)
                     in
-                    ( { started | map = setCell x y model.active started.map }, Cmd.none )
+                    ( { painted | painting = True }, Cmd.none )
 
         CellMouseEnter x y ->
             let
@@ -288,7 +322,7 @@ update msg model =
                     { model | cursor = Just ( x, y ) }
             in
             if model.painting then
-                ( { hovered | map = setCell x y model.active hovered.map }, Cmd.none )
+                ( setActiveGrid (setCell x y (activeKey hovered) (activeGrid hovered)) hovered, Cmd.none )
 
             else
                 ( hovered, Cmd.none )
@@ -317,13 +351,16 @@ update msg model =
 
                 h =
                     String.toInt model.newH |> Maybe.withDefault 40 |> clamp 1 1000
+
+                pushed =
+                    pushHistory model
             in
-            ( commit (makeMap w h (grasslandKey model)) { model | vx = 0, vy = 0 }, Cmd.none )
+            ( { pushed | map = makeMap w h (grasslandKey model), resourceMap = makeMap w h noResource, vx = 0, vy = 0, status = "new map" }, Cmd.none )
 
         Undo ->
             case model.history of
                 prev :: rest ->
-                    ( { model | map = prev, history = rest, future = model.map :: model.future, status = "undo" }, Cmd.none )
+                    ( restore prev { model | history = rest, future = current model :: model.future, status = "undo" }, Cmd.none )
 
                 [] ->
                     ( { model | status = "nothing to undo" }, Cmd.none )
@@ -331,14 +368,14 @@ update msg model =
         Redo ->
             case model.future of
                 next :: rest ->
-                    ( { model | map = next, future = rest, history = model.map :: model.history, status = "redo" }, Cmd.none )
+                    ( restore next { model | future = rest, history = current model :: model.history, status = "redo" }, Cmd.none )
 
                 [] ->
                     ( { model | status = "nothing to redo" }, Cmd.none )
 
         SaveMap ->
             ( { model | status = "saved " ++ model.name ++ ".json" }
-            , Download.string (model.name ++ ".json") "application/json" (encodeMap model.name model.map)
+            , Download.string (model.name ++ ".json") "application/json" (encodeMap model)
             )
 
         LoadRequested ->
@@ -349,18 +386,70 @@ update msg model =
 
         FileLoaded contents ->
             case D.decodeString mapDecoder contents of
-                Ok ( name, m ) ->
-                    ( commit m { model | name = name, vx = 0, vy = 0, status = "loaded " ++ name }, Cmd.none )
+                Ok ( name, terrainMap, resourceMap ) ->
+                    ( { model | name = name, map = terrainMap, resourceMap = resourceMap, history = [], future = [], vx = 0, vy = 0, status = "loaded " ++ name }, Cmd.none )
 
                 Err _ ->
                     ( { model | status = "could not parse that map file" }, Cmd.none )
 
 
-{-| Apply a new map, pushing the prior one onto the undo history.
--}
-commit : MapData -> Model -> Model
-commit newMap model =
-    { model | map = newMap, history = model.map :: model.history, future = [], status = "edited" }
+current : Model -> Snapshot
+current model =
+    { terrain = model.map, resources = model.resourceMap }
+
+
+restore : Snapshot -> Model -> Model
+restore snap model =
+    { model | map = snap.terrain, resourceMap = snap.resources }
+
+
+pushHistory : Model -> Model
+pushHistory model =
+    { model | history = current model :: model.history, future = [], status = "edited" }
+
+
+activeGrid : Model -> MapData
+activeGrid model =
+    case model.layer of
+        TerrainLayer ->
+            model.map
+
+        ResourceLayer ->
+            model.resourceMap
+
+
+setActiveGrid : MapData -> Model -> Model
+setActiveGrid grid model =
+    case model.layer of
+        TerrainLayer ->
+            { model | map = grid }
+
+        ResourceLayer ->
+            { model | resourceMap = grid }
+
+
+activeKey : Model -> Char
+activeKey model =
+    case model.layer of
+        TerrainLayer ->
+            model.active
+
+        ResourceLayer ->
+            model.activeResource
+
+
+eyedrop : Int -> Int -> Model -> Model
+eyedrop x y model =
+    let
+        picked =
+            getCell x y (activeGrid model) |> Maybe.withDefault (activeKey model)
+    in
+    case model.layer of
+        TerrainLayer ->
+            { model | active = picked }
+
+        ResourceLayer ->
+            { model | activeResource = picked }
 
 
 dropExtension : String -> String
@@ -374,6 +463,43 @@ dropExtension s =
 
 
 
+-- ENCODE / DECODE
+
+
+encodeMap : Model -> String
+encodeMap model =
+    E.encode 2 <|
+        E.object
+            [ ( "name", E.string model.name )
+            , ( "width", E.int model.map.width )
+            , ( "height", E.int model.map.height )
+            , ( "rows", E.list E.string (rowsToStrings model.map) )
+            , ( "resources", E.list E.string (rowsToStrings model.resourceMap) )
+            ]
+
+
+mapDecoder : D.Decoder ( String, MapData, MapData )
+mapDecoder =
+    D.map5
+        (\name w h rows mres ->
+            ( name
+            , { width = w, height = h, rows = rowsFromStrings rows }
+            , case mres of
+                Just rr ->
+                    { width = w, height = h, rows = rowsFromStrings rr }
+
+                Nothing ->
+                    makeMap w h noResource
+            )
+        )
+        (D.field "name" D.string)
+        (D.field "width" D.int)
+        (D.field "height" D.int)
+        (D.field "rows" (D.list D.string))
+        (D.maybe (D.field "resources" (D.list D.string)))
+
+
+
 -- VIEW
 
 
@@ -381,7 +507,8 @@ view : Model -> Html Msg
 view model =
     div [ A.style "font-family" "monospace", A.style "background" "#0f1115", A.style "color" "#ddd", A.style "min-height" "100vh", A.style "padding" "8px" ]
         [ div [ A.style "display" "flex", A.style "gap" "16px", A.style "flex-wrap" "wrap", A.style "align-items" "flex-start" ]
-            [ paletteView model
+            [ layerView model
+            , paletteView model
             , toolsView model
             ]
         , gridView model
@@ -389,26 +516,53 @@ view model =
         ]
 
 
-paletteView : Model -> Html Msg
-paletteView model =
+layerView : Model -> Html Msg
+layerView model =
     div []
-        [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "terrain" ]
-        , div [ A.style "display" "flex", A.style "flex-wrap" "wrap", A.style "max-width" "360px", A.style "gap" "4px" ]
-            (List.map (terrainButton model) model.palette)
+        [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "layer" ]
+        , div [ A.style "display" "flex", A.style "gap" "4px" ]
+            [ layerButton model TerrainLayer "terrain"
+            , layerButton model ResourceLayer "resources"
+            ]
         ]
 
 
-terrainButton : Model -> Terrain -> Html Msg
-terrainButton model t =
+layerButton : Model -> Layer -> String -> Html Msg
+layerButton model layer label =
     button
-        [ onClick (SelectTerrain t.key)
-        , A.style "background"
-            (if t.key == model.active then
-                "#2b3550"
+        [ onClick (SetLayer layer)
+        , A.style "background" (highlightIf (model.layer == layer))
+        , A.style "color" "#ddd"
+        , A.style "border" "1px solid #333"
+        , A.style "padding" "4px 8px"
+        , A.style "cursor" "pointer"
+        ]
+        [ text label ]
 
-             else
-                "#1a1d24"
-            )
+
+paletteView : Model -> Html Msg
+paletteView model =
+    case model.layer of
+        TerrainLayer ->
+            div []
+                [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "terrain" ]
+                , div [ A.style "display" "flex", A.style "flex-wrap" "wrap", A.style "max-width" "360px", A.style "gap" "4px" ]
+                    (List.map (paletteButton SelectTerrain model.active) model.palette)
+                ]
+
+        ResourceLayer ->
+            div []
+                [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "resources" ]
+                , div [ A.style "display" "flex", A.style "flex-wrap" "wrap", A.style "max-width" "360px", A.style "gap" "4px" ]
+                    (noneButton model.activeResource :: List.map (paletteButton SelectResource model.activeResource) model.resources)
+                ]
+
+
+paletteButton : (Char -> Msg) -> Char -> Terrain -> Html Msg
+paletteButton toMsg activeK t =
+    button
+        [ onClick (toMsg t.key)
+        , A.style "background" (highlightIf (t.key == activeK))
         , A.style "color" (cssColor t.color)
         , A.style "border" "1px solid #333"
         , A.style "padding" "4px 6px"
@@ -416,6 +570,19 @@ terrainButton model t =
         , A.style "font-family" "monospace"
         ]
         [ text (t.glyph ++ " " ++ t.id) ]
+
+
+noneButton : Char -> Html Msg
+noneButton activeK =
+    button
+        [ onClick (SelectResource noResource)
+        , A.style "background" (highlightIf (activeK == noResource))
+        , A.style "color" "#aaa"
+        , A.style "border" "1px solid #333"
+        , A.style "padding" "4px 6px"
+        , A.style "cursor" "pointer"
+        ]
+        [ text "· none (erase)" ]
 
 
 toolsView : Model -> Html Msg
@@ -430,7 +597,8 @@ toolsView model =
             , plainButton Redo "redo"
             , plainButton SaveMap "save"
             , plainButton LoadRequested "load"
-            , terrainEditorLink
+            , editorLink "/terrain.html" "edit terrain ↗"
+            , editorLink "/resources.html" "edit resources ↗"
             ]
         , div [ A.style "margin-top" "8px", A.style "display" "flex", A.style "gap" "4px", A.style "align-items" "center" ]
             [ text "new "
@@ -452,13 +620,7 @@ toolButton : Model -> Tool -> String -> Html Msg
 toolButton model t label =
     button
         [ onClick (SelectTool t)
-        , A.style "background"
-            (if t == model.tool then
-                "#2b3550"
-
-             else
-                "#1a1d24"
-            )
+        , A.style "background" (highlightIf (t == model.tool))
         , A.style "color" "#ddd"
         , A.style "border" "1px solid #333"
         , A.style "padding" "4px 8px"
@@ -480,10 +642,10 @@ plainButton msg label =
         [ text label ]
 
 
-terrainEditorLink : Html Msg
-terrainEditorLink =
+editorLink : String -> String -> Html Msg
+editorLink href label =
     a
-        [ A.href "/terrain.html"
+        [ A.href href
         , A.target "_blank"
         , A.style "background" "#1a1d24"
         , A.style "color" "#ddd"
@@ -491,7 +653,16 @@ terrainEditorLink =
         , A.style "padding" "4px 8px"
         , A.style "text-decoration" "none"
         ]
-        [ text "edit terrain ↗" ]
+        [ text label ]
+
+
+highlightIf : Bool -> String
+highlightIf on =
+    if on then
+        "#2b3550"
+
+    else
+        "#1a1d24"
 
 
 sizeInput : String -> (String -> Msg) -> Html Msg
@@ -538,17 +709,32 @@ rowView model y =
 cellView : Model -> Int -> Int -> Html Msg
 cellView model x y =
     let
-        ch =
-            getCell x y model.map |> Maybe.withDefault ' '
+        resourceCh =
+            getCell x y model.resourceMap |> Maybe.withDefault noResource
 
-        terrain =
-            Dict.get ch model.byKey
+        resource =
+            if resourceCh == noResource then
+                Nothing
 
-        glyph =
-            terrain |> Maybe.map .glyph |> Maybe.withDefault (String.fromChar ch)
+            else
+                Dict.get resourceCh model.byResKey
 
-        color =
-            terrain |> Maybe.map (.color >> cssColor) |> Maybe.withDefault "#888"
+        ( glyph, color ) =
+            case resource of
+                Just r ->
+                    ( r.glyph, cssColor r.color )
+
+                Nothing ->
+                    let
+                        terrainCh =
+                            getCell x y model.map |> Maybe.withDefault ' '
+                    in
+                    case Dict.get terrainCh model.byKey of
+                        Just t ->
+                            ( t.glyph, cssColor t.color )
+
+                        Nothing ->
+                            ( String.fromChar terrainCh, "#888" )
 
         highlight =
             model.cursor == Just ( x, y )
@@ -581,8 +767,13 @@ statusView model =
                 Nothing ->
                     "—"
 
-        activeName =
-            Dict.get model.active model.byKey |> Maybe.map .id |> Maybe.withDefault (String.fromChar model.active)
+        layerText =
+            case model.layer of
+                TerrainLayer ->
+                    "terrain:" ++ nameOf model.active model.byKey
+
+                ResourceLayer ->
+                    "resource:" ++ resourceNameOf model.activeResource model.byResKey
     in
     div [ A.style "margin-top" "8px", A.style "opacity" "0.85" ]
         [ text
@@ -590,11 +781,25 @@ statusView model =
                 [ model.name ++ " (" ++ String.fromInt model.map.width ++ "×" ++ String.fromInt model.map.height ++ ")"
                 , "cursor " ++ cursorText
                 , "view " ++ String.fromInt model.vx ++ "," ++ String.fromInt model.vy
-                , "terrain " ++ activeName
+                , layerText
                 , model.status
                 ]
             )
         ]
+
+
+nameOf : Char -> Dict Char Terrain -> String
+nameOf k dict =
+    Dict.get k dict |> Maybe.map .id |> Maybe.withDefault (String.fromChar k)
+
+
+resourceNameOf : Char -> Dict Char Terrain -> String
+resourceNameOf k dict =
+    if k == noResource then
+        "none"
+
+    else
+        nameOf k dict
 
 
 cssColor : String -> String

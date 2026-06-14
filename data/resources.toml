@@ -1,0 +1,34 @@
+# Resources.  A resource is placed as a layer over the terrain.  It reuses the
+# terrain shape: a `key` stored per tile in the resource layer, plus a display
+# `glyph` and `color`, and optional `props`.  These are placeholders; rename and
+# retheme them freely in the resource editor.
+
+[[resource]]
+id = "Resource A"
+key = "A"
+glyph = "♦"
+color = "bright_red"
+
+[[resource]]
+id = "Resource B"
+key = "B"
+glyph = "♠"
+color = "bright_yellow"
+
+[[resource]]
+id = "Resource C"
+key = "C"
+glyph = "♣"
+color = "bright_green"
+
+[[resource]]
+id = "Resource D"
+key = "D"
+glyph = "●"
+color = "bright_cyan"
+
+[[resource]]
+id = "Resource E"
+key = "E"
+glyph = "★"
+color = "bright_magenta"
