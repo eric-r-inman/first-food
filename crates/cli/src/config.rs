@@ -62,6 +62,10 @@ pub enum Commands {
   Units,
   /// Print the landmark palette as JSON (consumed by the browser editors).
   Landmarks,
+  /// Print the weather palette as JSON (consumed by the browser editors).
+  Weather,
+  /// Print the climate palette as JSON (consumed by the browser editors).
+  Climate,
 }
 
 #[derive(Debug, Clone, MergeConfig)]

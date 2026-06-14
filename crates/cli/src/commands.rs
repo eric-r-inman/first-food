@@ -96,6 +96,24 @@ pub fn run(config: Config) -> Result<ExitCode, AppError> {
       });
       println!("{}", serde_json::to_string_pretty(&palette)?);
     }
+    Commands::Weather => {
+      let (property_keys, weather) =
+        first_food_lib::load_weather(&config.data_dir)?;
+      let palette = serde_json::json!({
+        "property_keys": property_keys,
+        "weather": weather,
+      });
+      println!("{}", serde_json::to_string_pretty(&palette)?);
+    }
+    Commands::Climate => {
+      let (property_keys, climate) =
+        first_food_lib::load_climate(&config.data_dir)?;
+      let palette = serde_json::json!({
+        "property_keys": property_keys,
+        "climate": climate,
+      });
+      println!("{}", serde_json::to_string_pretty(&palette)?);
+    }
   }
   Ok(ExitCode::SUCCESS)
 }

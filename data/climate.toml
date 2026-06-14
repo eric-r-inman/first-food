@@ -1,0 +1,9 @@
+# Climate.  A climate band placed as a layer over the terrain.  Reuses the
+# terrain shape (keyed glyph + color + props).  Graphics are placeholders ("?")
+# until assigned in the climate editor.
+
+[[climate]]
+id = "Climate A"
+key = "K"
+glyph = "?"
+color = "white"

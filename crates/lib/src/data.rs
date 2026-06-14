@@ -137,6 +137,26 @@ struct LandmarkFile {
   landmark: Vec<TerrainDef>,
 }
 
+/// The top-level shape of `weather.toml`.  Weather reuses the terrain
+/// definition shape and forms a layer placed over the terrain.
+#[derive(Debug, Serialize, Deserialize)]
+struct WeatherFile {
+  #[serde(default)]
+  property_keys: Vec<String>,
+  #[serde(rename = "weather", default)]
+  weather: Vec<TerrainDef>,
+}
+
+/// The top-level shape of `climate.toml`.  Climate reuses the terrain
+/// definition shape and forms a layer placed over the terrain.
+#[derive(Debug, Serialize, Deserialize)]
+struct ClimateFile {
+  #[serde(default)]
+  property_keys: Vec<String>,
+  #[serde(rename = "climate", default)]
+  climate: Vec<TerrainDef>,
+}
+
 #[derive(Debug, Error)]
 pub enum GameDataError {
   #[error("could not read archetypes file at {path}: {source}")]
@@ -206,6 +226,26 @@ pub enum GameDataError {
   },
   #[error("could not parse landmarks file at {path}: {source}")]
   LandmarksParse {
+    path: PathBuf,
+    source: toml::de::Error,
+  },
+  #[error("could not read weather file at {path}: {source}")]
+  WeatherRead {
+    path: PathBuf,
+    source: std::io::Error,
+  },
+  #[error("could not parse weather file at {path}: {source}")]
+  WeatherParse {
+    path: PathBuf,
+    source: toml::de::Error,
+  },
+  #[error("could not read climate file at {path}: {source}")]
+  ClimateRead {
+    path: PathBuf,
+    source: std::io::Error,
+  },
+  #[error("could not parse climate file at {path}: {source}")]
+  ClimateParse {
     path: PathBuf,
     source: toml::de::Error,
   },
@@ -414,6 +454,40 @@ pub fn load_landmarks(
     )?)
     .map_err(|source| GameDataError::LandmarksParse { path, source })?;
   Ok((file.property_keys, file.landmark))
+}
+
+/// Load the weather palette and its universal property keys from `weather.toml`
+/// in `dir`.  Weather is a layer placed over the terrain.
+pub fn load_weather(
+  dir: &Path,
+) -> Result<(Vec<String>, Vec<TerrainDef>), GameDataError> {
+  let path = dir.join("weather.toml");
+  let file =
+    toml::from_str::<WeatherFile>(&fs::read_to_string(&path).map_err(
+      |source| GameDataError::WeatherRead {
+        path: path.clone(),
+        source,
+      },
+    )?)
+    .map_err(|source| GameDataError::WeatherParse { path, source })?;
+  Ok((file.property_keys, file.weather))
+}
+
+/// Load the climate palette and its universal property keys from `climate.toml`
+/// in `dir`.  Climate is a layer placed over the terrain.
+pub fn load_climate(
+  dir: &Path,
+) -> Result<(Vec<String>, Vec<TerrainDef>), GameDataError> {
+  let path = dir.join("climate.toml");
+  let file =
+    toml::from_str::<ClimateFile>(&fs::read_to_string(&path).map_err(
+      |source| GameDataError::ClimateRead {
+        path: path.clone(),
+        source,
+      },
+    )?)
+    .map_err(|source| GameDataError::ClimateParse { path, source })?;
+  Ok((file.property_keys, file.climate))
 }
 
 #[cfg(test)]

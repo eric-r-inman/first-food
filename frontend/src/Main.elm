@@ -24,6 +24,7 @@ import Http
 import Json.Decode as D
 import Json.Encode as E
 import Task
+import Time
 
 
 
@@ -140,10 +141,12 @@ empty =
 
 {-| The overlay layers, ordered bottom to top. Adding a layer is a matter of
 adding its title here (and shipping its data file, CLI feed, and editor page).
+Climate sits low as an environmental base; weather sits on top as the
+atmospheric layer.
 -}
 overlayTitles : List String
 overlayTitles =
-    [ "resources", "landmarks", "buildings", "units" ]
+    [ "climate", "resources", "landmarks", "buildings", "units", "weather" ]
 
 
 type alias Overlay =
@@ -155,6 +158,7 @@ type alias Overlay =
     , byKey : Dict Char Terrain
     , grid : MapData
     , active : Char
+    , rotation : Bool
     }
 
 
@@ -168,6 +172,7 @@ newOverlay title =
     , byKey = Dict.empty
     , grid = makeMap 64 40 empty
     , active = empty
+    , rotation = True
     }
 
 
@@ -214,6 +219,8 @@ type alias Model =
     , map : MapData
     , active : Char
     , overlays : List Overlay
+    , terrainRotation : Bool
+    , tick : Int
     , name : String
     , tool : Tool
     , layer : Layer
@@ -264,6 +271,8 @@ init _ =
       , map = makeMap 64 40 defaultFill
       , active = defaultFill
       , overlays = overlays
+      , terrainRotation = True
+      , tick = 0
       , name = "untitled"
       , tool = Paint
       , layer = TerrainLayer
@@ -296,6 +305,9 @@ type Msg
     | SelectTerrain Char
     | SelectOverlay Int Char
     | SetLayer Layer
+    | ToggleTerrainRotation
+    | ToggleOverlayRotation Int
+    | Tick
     | SelectTool Tool
     | CellMouseDown Int Int
     | CellMouseEnter Int Int
@@ -356,6 +368,15 @@ update msg model =
 
         SetLayer layer ->
             ( { model | layer = layer }, Cmd.none )
+
+        ToggleTerrainRotation ->
+            ( { model | terrainRotation = not model.terrainRotation }, Cmd.none )
+
+        ToggleOverlayRotation i ->
+            ( { model | overlays = updateOverlay i (\o -> { o | rotation = not o.rotation }) model.overlays }, Cmd.none )
+
+        Tick ->
+            ( { model | tick = model.tick + 1 }, Cmd.none )
 
         SelectTool t ->
             ( { model | tool = t }, Cmd.none )
@@ -633,11 +654,19 @@ editorsColumn model =
 layerView : Model -> Html Msg
 layerView model =
     div []
-        [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "layer" ]
-        , div [ A.style "display" "flex", A.style "gap" "4px", A.style "flex-wrap" "wrap" ]
-            (layerButton model TerrainLayer "terrain"
-                :: List.indexedMap (\i o -> layerButton model (OverlayLayer i) o.title) model.overlays
+        [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "layer (↻ = visibility rotation)" ]
+        , div [ A.style "display" "flex", A.style "flex-direction" "column", A.style "gap" "4px" ]
+            (layerRow model TerrainLayer "terrain" model.terrainRotation ToggleTerrainRotation
+                :: List.indexedMap (\i o -> layerRow model (OverlayLayer i) o.title o.rotation (ToggleOverlayRotation i)) model.overlays
             )
+        ]
+
+
+layerRow : Model -> Layer -> String -> Bool -> Msg -> Html Msg
+layerRow model layer label rotationOn toggleMsg =
+    div [ A.style "display" "flex", A.style "gap" "4px" ]
+        [ layerButton model layer label
+        , rotationToggle rotationOn toggleMsg
         ]
 
 
@@ -650,8 +679,36 @@ layerButton model layer label =
         , A.style "border" "1px solid #333"
         , A.style "padding" "4px 8px"
         , A.style "cursor" "pointer"
+        , A.style "flex" "1"
+        , A.style "text-align" "left"
         ]
         [ text label ]
+
+
+rotationToggle : Bool -> Msg -> Html Msg
+rotationToggle on msg =
+    button
+        [ onClick msg
+        , A.title
+            (if on then
+                "in visibility rotation — click to exclude"
+
+             else
+                "excluded from visibility rotation — click to include"
+            )
+        , A.style "background" (highlightIf on)
+        , A.style "color"
+            (if on then
+                "#8bc34a"
+
+             else
+                "#777"
+            )
+        , A.style "border" "1px solid #333"
+        , A.style "padding" "4px 8px"
+        , A.style "cursor" "pointer"
+        ]
+        [ text "↻" ]
 
 
 paletteView : Model -> Html Msg
@@ -827,7 +884,7 @@ cellView : Model -> Int -> Int -> Html Msg
 cellView model x y =
     let
         ( glyph, color ) =
-            topCell model x y
+            displayCell model x y
 
         highlight =
             model.cursor == Just ( x, y )
@@ -849,26 +906,69 @@ cellView model x y =
         [ text glyph ]
 
 
+{-| The glyph drawn at a tile. Visibility rotation cycles, one symbol per
+second, through every rotation-enabled layer with something on this tile, so a
+tile carrying several items reveals each in turn. When the rotation set is empty
+(all contributing layers are excluded), fall back to the topmost occupied layer
+so a tile is never blank.
+-}
+displayCell : Model -> Int -> Int -> ( String, String )
+displayCell model x y =
+    case rotationStack model x y of
+        [] ->
+            topCell model x y
+
+        stack ->
+            List.drop (modBy (List.length stack) model.tick) stack
+                |> List.head
+                |> Maybe.withDefault (topCell model x y)
+
+
+{-| The rotation-enabled symbols present at a tile, ordered top to bottom so the
+first frame matches the static top-of-stack view. Terrain is always present, so
+it contributes whenever its rotation is enabled.
+-}
+rotationStack : Model -> Int -> Int -> List ( String, String )
+rotationStack model x y =
+    (List.reverse model.overlays
+        |> List.filterMap
+            (\o ->
+                if o.rotation then
+                    overlayAt x y o.grid o.byKey
+
+                else
+                    Nothing
+            )
+    )
+        ++ (if model.terrainRotation then
+                [ terrainCell model x y ]
+
+            else
+                []
+           )
+
+
+terrainCell : Model -> Int -> Int -> ( String, String )
+terrainCell model x y =
+    let
+        terrainCh =
+            getCell x y model.map |> Maybe.withDefault ' '
+    in
+    case Dict.get terrainCh model.byKey of
+        Just t ->
+            ( t.glyph, cssColor t.color )
+
+        Nothing ->
+            ( String.fromChar terrainCh, "#888" )
+
+
 {-| The glyph drawn at a tile: the topmost overlay with something there, else
 the terrain. Overlays are stored bottom-to-top, so the search runs in reverse.
 -}
 topCell : Model -> Int -> Int -> ( String, String )
 topCell model x y =
-    case firstJust (List.reverse model.overlays |> List.map (\o -> overlayAt x y o.grid o.byKey)) of
-        Just gc ->
-            gc
-
-        Nothing ->
-            let
-                terrainCh =
-                    getCell x y model.map |> Maybe.withDefault ' '
-            in
-            case Dict.get terrainCh model.byKey of
-                Just t ->
-                    ( t.glyph, cssColor t.color )
-
-                Nothing ->
-                    ( String.fromChar terrainCh, "#888" )
+    firstJust (List.reverse model.overlays |> List.map (\o -> overlayAt x y o.grid o.byKey))
+        |> Maybe.withDefault (terrainCell model x y)
 
 
 firstJust : List (Maybe a) -> Maybe a
@@ -1009,11 +1109,14 @@ cssColor name =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    if model.painting then
-        Browser.Events.onMouseUp (D.succeed StopPaint)
+    Sub.batch
+        [ Time.every 1000 (always Tick)
+        , if model.painting then
+            Browser.Events.onMouseUp (D.succeed StopPaint)
 
-    else
-        Sub.none
+          else
+            Sub.none
+        ]
 
 
 main : Program () Model Msg

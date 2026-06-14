@@ -19,6 +19,8 @@ frontend/public/resources.js
 frontend/public/buildings.js
 frontend/public/units.js
 frontend/public/landmarks.js
+frontend/public/weather.js
+frontend/public/climate.js
 
 # Palettes generated for the map editor by `just editor`.
 frontend/public/palette.json
@@ -26,6 +28,8 @@ frontend/public/resources.json
 frontend/public/buildings.json
 frontend/public/units.json
 frontend/public/landmarks.json
+frontend/public/weather.json
+frontend/public/climate.json
 
 # Local game save written by `just dev`; generated, not project source.
 /world.json
