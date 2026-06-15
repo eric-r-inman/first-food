@@ -19,7 +19,7 @@ import File.Download as Download
 import File.Select as Select
 import Html exposing (Html, a, button, div, input, span, text)
 import Html.Attributes as A
-import Html.Events exposing (onClick, onInput, onMouseDown, onMouseEnter)
+import Html.Events exposing (on, onClick, onInput, onMouseEnter)
 import Http
 import Json.Decode as D
 import Json.Encode as E
@@ -233,6 +233,7 @@ type alias Model =
     , newW : String
     , newH : String
     , painting : Bool
+    , erasing : Bool
     }
 
 
@@ -285,6 +286,7 @@ init _ =
       , newW = "64"
       , newH = "40"
       , painting = False
+      , erasing = False
       }
     , Cmd.batch
         (Http.get { url = "palette.json", expect = Http.expectJson GotPalette (D.field "terrain" (D.list terrainDecoder)) }
@@ -309,7 +311,7 @@ type Msg
     | ToggleOverlayRotation Int
     | Tick
     | SelectTool Tool
-    | CellMouseDown Int Int
+    | CellMouseDown Int Int Bool
     | CellMouseEnter Int Int
     | StopPaint
     | Pan Int Int
@@ -381,20 +383,20 @@ update msg model =
         SelectTool t ->
             ( { model | tool = t }, Cmd.none )
 
-        CellMouseDown x y ->
-            case model.tool of
-                Eyedropper ->
+        CellMouseDown x y shift ->
+            case ( model.tool, shift ) of
+                ( Eyedropper, False ) ->
                     ( eyedrop x y model, Cmd.none )
 
-                Fill ->
-                    ( setActiveGrid (floodFill x y (activeKey model) (activeGrid model)) (pushHistory model), Cmd.none )
+                ( Fill, _ ) ->
+                    ( setActiveGrid (floodFill x y (strokeKey shift model) (activeGrid model)) (pushHistory model), Cmd.none )
 
-                Paint ->
+                _ ->
                     let
                         painted =
-                            setActiveGrid (setCell x y (activeKey model) (activeGrid model)) (pushHistory model)
+                            setActiveGrid (setCell x y (strokeKey shift model) (activeGrid model)) (pushHistory model)
                     in
-                    ( { painted | painting = True }, Cmd.none )
+                    ( { painted | painting = True, erasing = shift }, Cmd.none )
 
         CellMouseEnter x y ->
             let
@@ -402,13 +404,13 @@ update msg model =
                     { model | cursor = Just ( x, y ) }
             in
             if model.painting then
-                ( setActiveGrid (setCell x y (activeKey hovered) (activeGrid hovered)) hovered, Cmd.none )
+                ( setActiveGrid (setCell x y (strokeKey model.erasing hovered) (activeGrid hovered)) hovered, Cmd.none )
 
             else
                 ( hovered, Cmd.none )
 
         StopPaint ->
-            ( { model | painting = False }, Cmd.none )
+            ( { model | painting = False, erasing = False }, Cmd.none )
 
         Pan dx dy ->
             ( { model
@@ -535,6 +537,31 @@ activeKey model =
 
         OverlayLayer i ->
             getOverlay i model.overlays |> Maybe.map .active |> Maybe.withDefault empty
+
+
+{-| The key a stroke writes: the erase value when erasing (shift held),
+otherwise the active palette selection.
+-}
+strokeKey : Bool -> Model -> Char
+strokeKey erasing model =
+    if erasing then
+        eraseKey model
+
+    else
+        activeKey model
+
+
+{-| Erasing clears an overlay cell to empty. Terrain always carries a value, so
+its erase resets the cell to grassland, the board's base fill.
+-}
+eraseKey : Model -> Char
+eraseKey model =
+    case model.layer of
+        TerrainLayer ->
+            grasslandKey model
+
+        OverlayLayer _ ->
+            empty
 
 
 eyedrop : Int -> Int -> Model -> Model
@@ -764,7 +791,7 @@ noneButton toMsg activeK =
 toolsView : Model -> Html Msg
 toolsView model =
     div []
-        [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "tools" ]
+        [ div [ A.style "opacity" "0.7", A.style "margin-bottom" "4px" ] [ text "tools (shift-click erases)" ]
         , div [ A.style "display" "flex", A.style "gap" "4px", A.style "flex-wrap" "wrap" ]
             [ toolButton model Paint "paint"
             , toolButton model Fill "fill"
@@ -880,6 +907,14 @@ rowView model y =
     div [ A.style "white-space" "pre" ] (List.map (\x -> cellView model x y) cols)
 
 
+{-| Mouse-down on a cell, carrying whether shift was held so a shift-click (or
+shift-drag) erases instead of paints.
+-}
+onCellMouseDown : Int -> Int -> Html.Attribute Msg
+onCellMouseDown x y =
+    on "mousedown" (D.map (CellMouseDown x y) (D.field "shiftKey" D.bool))
+
+
 cellView : Model -> Int -> Int -> Html Msg
 cellView model x y =
     let
@@ -891,7 +926,7 @@ cellView model x y =
     in
     span
         [ onMouseEnter (CellMouseEnter x y)
-        , onMouseDown (CellMouseDown x y)
+        , onCellMouseDown x y
         , A.style "color" color
         , A.style "display" "inline-block"
         , A.style "width" "1ch"
