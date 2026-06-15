@@ -18,6 +18,14 @@ that do not earn their keep on a private, unreleased, solo game:
   automated dependency PRs.  The now-inert automerge workflow is left in place.
 - *Local =cargo-semver-checks=* — dropped from the flake dev shell; it is ABI
   stability tooling for published libraries, and this project is not published.
+- *CI changelog-entry gate and ABI/semver job* — CI now delegates to a trimmed
+  local reusable workflow (=.github/workflows/checks.yml=) instead of the
+  template's =reusable-ci=.  The local copy keeps Test, Formatting, and Clippy
+  but drops the per-push changelog-entry requirement (recurring friction on a
+  solo project) and the crates.io ABI/semver job (a no-op for an unpublished
+  binary).  Calling it as a reusable workflow from =ci.yml= preserves the =ci /
+  Test= and =ci / Formatting= status-check contexts branch protection requires,
+  so =branch-protection.json= is unchanged.
 
 Kept: the Nix dev shell, =treefmt=, local tests, the structural compliance
 checker (=just compliance=, which is cheap and not per-turn), CI, the Elm

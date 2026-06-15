@@ -8,4 +8,7 @@ on:
 
 jobs:
   ci:
-    uses: LoganBarnett/rust-template/.github/workflows/reusable-ci.yml@main
+    # Delegates to a trimmed local copy of rust-template's reusable-ci rather
+    # than the template's own, to drop the changelog-entry gate and the no-op
+    # ABI/semver job on this solo, unreleased project.  See checks.yml.
+    uses: ./.github/workflows/checks.yml

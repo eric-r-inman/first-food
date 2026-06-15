@@ -1,0 +1,45 @@
+name: CI checks (local)
+
+# A trimmed, local copy of rust-template's reusable-ci: it runs the checks this
+# solo, unreleased project cares about (tests, formatting, clippy) and drops the
+# template's changelog-entry gate and the crates.io ABI/semver job, which are
+# overkill here.  Keeping it a reusable workflow called from `ci.yml` preserves
+# the `ci / Test` and `ci / Formatting` status-check context names that branch
+# protection requires.  Every job runs inside `nix develop --command` so the CI
+# toolchain matches the local devShell exactly.
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        run: nix develop --command cargo test --workspace --all-features
+
+  format:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Check formatting
+        run: nix develop --command cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy (warnings denied)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: Swatinem/rust-cache@v2
+      - name: Run clippy with warnings as errors
+        run: nix develop --command cargo clippy --workspace --all-targets --all-features -- --deny warnings

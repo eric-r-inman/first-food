@@ -31,6 +31,14 @@
     {
       "id": "dependabot-config-github-actions-ecosystem",
       "reason": "Dependabot disabled; see dependabot-config-present."
+    },
+    {
+      "id": "ci-uses-reusable-workflows",
+      "reason": "CI delegates to a trimmed local reusable workflow (.github/workflows/checks.yml) instead of the template's reusable-ci, to drop the per-push changelog-entry gate and the no-op crates.io ABI/semver job on this solo, unreleased project. The local copy keeps the Test/Formatting/Clippy jobs and preserves the ci / Test and ci / Formatting status-check contexts; see tasks.org."
+    },
+    {
+      "id": "ci-workflow-uses-reusable",
+      "reason": "CI delegates to a trimmed local reusable workflow; see ci-uses-reusable-workflows."
     }
   ]
 }
