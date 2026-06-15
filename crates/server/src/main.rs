@@ -13,7 +13,9 @@ use std::process::ExitCode;
 
 #[foundation_main]
 pub async fn main(
-  config: Config,
+  // The foundation macro resolves and supplies config (OIDC, listener, …); this
+  // minimal server does not read it directly in the body.
+  _config: Config,
   server: Server,
 ) -> Result<ExitCode, rust_template_foundation::ServerError> {
   let server = server.with_state(|base| AppState { base });

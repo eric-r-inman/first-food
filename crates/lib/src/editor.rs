@@ -20,10 +20,19 @@ pub enum EditorError {
   EmptyName,
   #[error("no free terrain key is available")]
   NoFreeKey,
+  // Boxed because `GameDataError` is large (many file-specific variants); an
+  // unboxed copy would bloat every `Result` this module returns past the
+  // `clippy::result_large_err` threshold.
   #[error(transparent)]
-  Data(#[from] GameDataError),
+  Data(Box<GameDataError>),
   #[error(transparent)]
   Save(#[from] SaveError),
+}
+
+impl From<GameDataError> for EditorError {
+  fn from(error: GameDataError) -> Self {
+    EditorError::Data(Box::new(error))
+  }
 }
 
 /// The editable state captured for a single undo step.

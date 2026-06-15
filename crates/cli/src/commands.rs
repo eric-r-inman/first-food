@@ -11,12 +11,20 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AppError {
+  // Boxed because `GameDataError` is large; an unboxed copy would push every
+  // command's `Result` past the `clippy::result_large_err` threshold.
   #[error(transparent)]
-  Data(#[from] first_food_lib::GameDataError),
+  Data(Box<first_food_lib::GameDataError>),
   #[error(transparent)]
   Save(#[from] first_food_lib::SaveError),
   #[error("could not serialize the terrain palette to JSON: {0}")]
   PaletteJson(#[from] serde_json::Error),
+}
+
+impl From<first_food_lib::GameDataError> for AppError {
+  fn from(error: first_food_lib::GameDataError) -> Self {
+    AppError::Data(Box::new(error))
+  }
 }
 
 /// Dispatch the parsed subcommand.

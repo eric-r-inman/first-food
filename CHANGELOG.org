@@ -3,6 +3,15 @@
 
 * Upcoming
 ** Added
+- Browser map editor with a movable viewport, paint/fill/eyedropper tools, drag
+  painting, undo/redo, and JSON save/load.
+- Data-driven overlay layers edited in their own browser tabs: resources,
+  landmarks, buildings, units, weather, and climate.
+- Visibility rotation: a tile cycles through every stacked layer one symbol per
+  second, with a per-layer toggle to exclude a layer from the cycle.
+- Shift-click erases objects in the active layer.
 ** Fixes
+- Box the data-error variant the editor carries so its results stay within the
+  size the lint allows.
 ** Breaking
 

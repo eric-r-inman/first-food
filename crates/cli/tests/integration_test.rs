@@ -1,3 +1,8 @@
+// Tests are exempt from the unwrap/expect prohibition: a panic is the desired
+// failure signal here, so silence the clippy lints that forbid it in shipping
+// code.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

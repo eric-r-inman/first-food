@@ -14,12 +14,20 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 enum DevError {
+  // Boxed because `GameDataError` is large; an unboxed copy would push this
+  // tool's `Result`s past the `clippy::result_large_err` threshold.
   #[error(transparent)]
-  Data(#[from] GameDataError),
+  Data(Box<GameDataError>),
   #[error(transparent)]
   Save(#[from] SaveError),
   #[error("terminal I/O failed: {0}")]
   Terminal(#[from] std::io::Error),
+}
+
+impl From<GameDataError> for DevError {
+  fn from(error: GameDataError) -> Self {
+    DevError::Data(Box::new(error))
+  }
 }
 
 fn main() -> ExitCode {
